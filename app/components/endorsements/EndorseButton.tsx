@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import StarRating from '@/app/components/StarRating'
-import { supabase } from '@/lib/supabase'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface EndorseButtonProps {
   targetUserId: string
@@ -20,6 +20,7 @@ export default function EndorseButton({ targetUserId, targetName }: EndorseButto
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
     supabase.auth.getUser().then(({ data }) => {
       setCurrentUserId(data.user?.id ?? null)
       setCheckingAuth(false)
@@ -47,6 +48,7 @@ export default function EndorseButton({ targetUserId, targetName }: EndorseButto
   async function handleSubmit() {
     setErrorMsg('')
 
+    const supabase = createSupabaseBrowserClient()
     const { data: userData } = await supabase.auth.getUser()
     if (!userData.user) {
       setUiState('not-logged-in')
@@ -60,19 +62,15 @@ export default function EndorseButton({ targetUserId, targetName }: EndorseButto
 
     setUiState('submitting')
 
-    const fromName = userData.user.user_metadata?.full_name
-      ?? userData.user.email?.split('@')[0]
-      ?? 'Anonymous'
-
-    const { error } = await supabase.from('endorsements').upsert(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('endorsements') as any).upsert(
       {
-        from_user_id: userData.user.id,
-        to_user_id: targetUserId,
-        from_name: fromName,
+        endorser_id: userData.user.id,
+        subject_id: targetUserId,
         rating,
         comment: comment.trim() || null,
       },
-      { onConflict: 'from_user_id,to_user_id' }
+      { onConflict: 'endorser_id,subject_id' }
     )
 
     if (error) {

@@ -1,6 +1,6 @@
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
 const PROTECTED_PATHS = ['/dashboard', '/business/dashboard', '/profile/edit']
 
@@ -10,51 +10,49 @@ const IS_DEMO_MODE =
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-
   const isProtected = PROTECTED_PATHS.some(p => pathname.startsWith(p))
-  if (!isProtected) return NextResponse.next()
+  if (!isProtected) return NextResponse.next({ request })
 
-  // Demo mode: no real Supabase configured — allow all routes through
-  // so the in-memory demo data is fully accessible without credentials.
-  if (IS_DEMO_MODE) return NextResponse.next()
+  // Demo mode — skip auth, let in-memory store handle everything
+  if (IS_DEMO_MODE) return NextResponse.next({ request })
 
-  const accessToken  = request.cookies.get('sb-access-token')?.value
-  const refreshToken = request.cookies.get('sb-refresh-token')?.value
+  // Build a mutable response so Supabase can update session cookies
+  let supabaseResponse = NextResponse.next({ request })
 
-  if (!accessToken && !refreshToken) {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  // Refresh session — important for SSR
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('next', pathname)
-    return NextResponse.redirect(loginUrl)
-  }
-
-  try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const redirectResponse = NextResponse.redirect(loginUrl)
+    // Copy session cookies to redirect response
+    supabaseResponse.cookies.getAll().forEach(cookie =>
+      redirectResponse.cookies.set(cookie.name, cookie.value, cookie)
     )
-
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken)
-
-    if (error || !user) {
-      if (refreshToken) {
-        const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken })
-        if (refreshError || !data.session) {
-          const loginUrl = new URL('/login', request.url)
-          loginUrl.searchParams.set('next', pathname)
-          return NextResponse.redirect(loginUrl)
-        }
-        return NextResponse.next()
-      }
-      const loginUrl = new URL('/login', request.url)
-      loginUrl.searchParams.set('next', pathname)
-      return NextResponse.redirect(loginUrl)
-    }
-  } catch {
-    // On error allow through — client-side will handle the guard
-    return NextResponse.next()
+    return redirectResponse
   }
 
-  return NextResponse.next()
+  return supabaseResponse
 }
 
 export const config = {

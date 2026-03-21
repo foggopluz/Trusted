@@ -1,8 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
-import { Shield, ChevronRight, CheckCircle, Upload } from 'lucide-react'
+import { Shield, ChevronRight, CheckCircle, Upload, X, FileText, Loader2 } from 'lucide-react'
 import { COUNTRY_VERIFICATION_METHODS } from '@/lib/types'
+import { createSupabaseBrowserClient, IS_DEMO_MODE } from '@/lib/supabase'
 
 const COUNTRIES = Object.keys(COUNTRY_VERIFICATION_METHODS)
 type Step = 1 | 2 | 3 | 4
@@ -12,7 +13,6 @@ const STEPS = [
   { n: 3, label: 'Contact Person' },
   { n: 4, label: 'Review' },
 ]
-
 const INDUSTRIES = [
   'Technology', 'Agritech', 'Fintech', 'Healthcare', 'Education', 'Retail',
   'Logistics', 'Construction', 'Consulting', 'Creative Agency', 'Manufacturing', 'Other',
@@ -28,21 +28,186 @@ export default function BusinessRegisterPage() {
     password: '', confirmPassword: '',
   })
   const [submitted, setSubmitted] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState<string[]>([])
+
+  // Certificate upload
+  const certInputRef = useRef<HTMLInputElement>(null)
+  const [certFile, setCertFile] = useState<File | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+
   const update = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  function handleFileSelect(file: File) {
+    if (file.size > 10 * 1024 * 1024) { setErrors(['File too large — max 10 MB.']); return }
+    setCertFile(file)
+    setErrors([])
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFileSelect(file)
+  }
+
+  function validateStep(s: Step): string[] {
+    if (s === 1) {
+      const errs: string[] = []
+      if (!form.businessName.trim()) errs.push('Business name is required.')
+      if (!form.city.trim()) errs.push('City is required.')
+      return errs
+    }
+    if (s === 3) {
+      const errs: string[] = []
+      if (!form.contactName.trim()) errs.push('Contact name is required.')
+      if (!form.contactEmail.trim()) errs.push('Contact email is required.')
+      if (!form.password.trim()) errs.push('Password is required.')
+      if (form.password.length < 8) errs.push('Password must be at least 8 characters.')
+      if (form.password !== form.confirmPassword) errs.push('Passwords do not match.')
+      return errs
+    }
+    return []
+  }
+
+  function handleContinue() {
+    const errs = validateStep(step)
+    if (errs.length > 0) { setErrors(errs); return }
+    setErrors([])
+    setStep(s => (s + 1) as Step)
+  }
+
+  async function handleSubmit() {
+    setLoading(true)
+    setErrors([])
+
+    if (!IS_DEMO_MODE && form.contactEmail && form.password) {
+      try {
+        const client = createSupabaseBrowserClient()
+
+        // 1. Sign up with Supabase Auth
+        const { data: authData, error: signUpError } = await client.auth.signUp({
+          email: form.contactEmail,
+          password: form.password,
+          options: {
+            data: { full_name: form.contactName, role: 'business' },
+          },
+        })
+
+        if (signUpError) { setErrors([signUpError.message]); setLoading(false); return }
+
+        const userId = authData.user?.id
+        if (!userId) {
+          setSubmitted(true)
+          setLoading(false)
+          return
+        }
+
+        // 2. Upload certificate
+        let certUrl: string | null = null
+        if (certFile) {
+          const ext = certFile.name.split('.').pop()
+          const path = `${userId}/incorporation-cert.${ext}`
+          const { error: uploadError } = await client.storage.from('documents').upload(path, certFile, { upsert: true })
+          if (!uploadError) {
+            const { data: urlData } = client.storage.from('documents').getPublicUrl(path)
+            certUrl = urlData.publicUrl
+          }
+        }
+
+        // 3. Insert profile
+        const { error: profileError } = await client.from('profiles').insert({
+          id: userId,
+          full_name: form.contactName,
+          email: form.contactEmail,
+          phone: form.contactPhone || null,
+          country: form.country,
+          city: form.city || null,
+          account_type: 'business',
+          role: 'business',
+          id_verification_status: 'pending',
+          did: `did:trustnet:${userId}`,
+          member_since: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        })
+
+        if (profileError && !profileError.message.includes('duplicate')) {
+          setErrors([profileError.message]); setLoading(false); return
+        }
+
+        // 4. Insert company
+        const { error: companyError } = await client.from('companies').insert({
+          owner_id: userId,
+          business_name: form.businessName,
+          industry: form.industry || null,
+          country: form.country,
+          city: form.city || null,
+          address: form.address || null,
+          website: form.website || null,
+          description: form.description || null,
+          tin_number: form.tinNumber || null,
+          registration_number: form.registrationNumber || null,
+          contact_name: form.contactName,
+          contact_phone: form.contactPhone || null,
+          contact_email: form.contactEmail,
+          verification_status: 'pending',
+          checks_remaining: 10,
+          checks_used: 0,
+          subscription_plan: 'starter',
+        })
+
+        if (companyError) {
+          setErrors([companyError.message]); setLoading(false); return
+        }
+
+      } catch (err) {
+        setErrors([err instanceof Error ? err.message : 'An unexpected error occurred.'])
+        setLoading(false)
+        return
+      }
+    } else {
+      // Demo mode
+      if (form.contactEmail && form.password) {
+        try {
+          const existing = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as { email: string; password: string; name: string }[]
+          const updated = existing.filter(u => u.email !== form.contactEmail)
+          updated.push({ email: form.contactEmail, password: form.password, name: form.contactName })
+          sessionStorage.setItem('tn_demo_users', JSON.stringify(updated))
+        } catch { /* ignore */ }
+      }
+    }
+
+    setLoading(false)
+    setSubmitted(true)
+  }
 
   if (submitted) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', padding: 24 }}>
-        <div style={{ textAlign: 'center', maxWidth: 480 }}>
+        <div style={{ textAlign: 'center', maxWidth: 520 }}>
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--risk-low-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
             <CheckCircle className="w-8 h-8" style={{ color: 'var(--risk-low)' }} />
           </div>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 500, color: 'var(--text)', marginBottom: 14 }}>Business application submitted!</h2>
-          <p style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.75, marginBottom: 32 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 500, color: 'var(--text)', marginBottom: 14 }}>Application submitted!</h2>
+          <p style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.75, marginBottom: 24 }}>
             Your business registration is under review. Our team will verify your documents and activate your account within 2–5 business days.
           </p>
-          <Link href="/business/dashboard" className="btn btn-forest" style={{ marginRight: 12 }}>Business Portal</Link>
-          <Link href="/" className="btn btn-outline-dark">Back to Home</Link>
+          {!IS_DEMO_MODE && (
+            <div style={{ background: 'var(--gold-pale)', border: '1px solid var(--gold-border)', borderRadius: 10, padding: '14px 18px', marginBottom: 24, textAlign: 'left', fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.6 }}>
+              <strong>Next step:</strong> Check your email for a verification link, then log in with {form.contactEmail} and your chosen password.
+            </div>
+          )}
+          {IS_DEMO_MODE && form.contactEmail && (
+            <div style={{ background: 'var(--gold-pale)', border: '1px solid var(--gold-border)', borderRadius: 10, padding: '16px 20px', marginBottom: 24, textAlign: 'left' }}>
+              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: 8 }}>Your login credentials</p>
+              <div style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Email</span>
+                <strong style={{ fontFamily: 'monospace', color: 'var(--text)' }}>{form.contactEmail}</strong>
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/login" className="btn btn-gold">Log In Now →</Link>
+            <Link href="/business/dashboard" className="btn btn-outline-dark">Demo Business Portal</Link>
+          </div>
         </div>
       </div>
     )
@@ -61,7 +226,6 @@ export default function BusinessRegisterPage() {
       </header>
 
       <div className="max-w-3xl mx-auto px-6 py-12">
-        {/* Steps */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 48 }}>
           {STEPS.map((s, i) => (
             <div key={s.n} style={{ display: 'flex', alignItems: 'center', flex: i < STEPS.length - 1 ? 1 : 'none' }}>
@@ -71,21 +235,20 @@ export default function BusinessRegisterPage() {
                 </div>
                 <span style={{ fontSize: 13, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? 'var(--text)' : 'var(--text-muted)' }}>{s.label}</span>
               </div>
-              {i < STEPS.length - 1 && (
-                <div style={{ flex: 1, height: 1, background: step > s.n ? 'var(--gold)' : 'var(--border)', margin: '0 8px', transition: 'background .2s' }} />
-              )}
+              {i < STEPS.length - 1 && <div style={{ flex: 1, height: 1, background: step > s.n ? 'var(--gold)' : 'var(--border)', margin: '0 8px', transition: 'background .2s' }} />}
             </div>
           ))}
         </div>
 
         <div className="card" style={{ padding: '40px 36px' }}>
+
           {step === 1 && (
             <div className="fade-in">
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Business Information</h2>
-              <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 32 }}>Your company's public-facing information.</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+              <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 32 }}>Your company&apos;s public-facing information.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px,100%),1fr))', gap: 18 }}>
                 <div style={{ gridColumn: '1/-1' }}>
-                  <label className="label">Legal Business Name</label>
+                  <label className="label">Legal Business Name <span style={{ color: 'var(--risk-high)' }}>*</span></label>
                   <input className="input" placeholder="As registered with authorities" value={form.businessName} onChange={e => update('businessName', e.target.value)} />
                 </div>
                 <div>
@@ -107,7 +270,7 @@ export default function BusinessRegisterPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="label">City</label>
+                  <label className="label">City <span style={{ color: 'var(--risk-high)' }}>*</span></label>
                   <input className="input" placeholder="Dar es Salaam" value={form.city} onChange={e => update('city', e.target.value)} />
                 </div>
                 <div style={{ gridColumn: '1/-1' }}>
@@ -131,7 +294,7 @@ export default function BusinessRegisterPage() {
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Business Registration</h2>
               <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 8 }}>Verification documents for <strong>{form.country}</strong>.</p>
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', marginBottom: 28, fontSize: 13, color: 'var(--text-muted)' }}>
-                Business registration numbers are verified against official government registries. This process may take 2–5 business days.
+                Business registration numbers are verified against official government registries. This may take 2–5 business days.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <div>
@@ -144,11 +307,35 @@ export default function BusinessRegisterPage() {
                 </div>
                 <div>
                   <label className="label">Upload Certificate of Incorporation</label>
-                  <div style={{ border: '2px dashed var(--border)', borderRadius: 10, padding: '32px 20px', textAlign: 'center', cursor: 'pointer', background: 'var(--surface)' }}>
-                    <Upload className="w-6 h-6 mx-auto mb-3" style={{ color: 'var(--text-faint)' }} />
-                    <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-mid)' }}>Drop certificate here or click to browse</p>
-                    <p style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>PDF, JPG, PNG — max 10 MB</p>
-                  </div>
+                  <input ref={certInputRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
+                  {certFile ? (
+                    <div style={{ border: '2px solid var(--gold)', borderRadius: 10, padding: '12px 16px', background: 'var(--gold-pale)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <FileText style={{ width: 20, height: 20, color: 'var(--gold)' }} />
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{certFile.name}</p>
+                          <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{(certFile.size / 1024).toFixed(0)} KB</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => setCertFile(null)} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--risk-high)', background: 'var(--risk-high-bg)', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                        <X style={{ width: 12, height: 12 }} /> Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      role="button" tabIndex={0}
+                      onClick={() => certInputRef.current?.click()}
+                      onKeyDown={e => e.key === 'Enter' && certInputRef.current?.click()}
+                      onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={handleDrop}
+                      style={{ border: `2px dashed ${dragOver ? 'var(--gold)' : 'var(--border)'}`, borderRadius: 10, padding: '36px 20px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'var(--gold-pale)' : 'var(--surface)', transition: 'all .15s' }}
+                    >
+                      <Upload className="w-7 h-7 mx-auto mb-3" style={{ color: dragOver ? 'var(--gold)' : 'var(--text-faint)' }} />
+                      <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 4 }}>{dragOver ? 'Drop to upload' : 'Drop certificate here or click to browse'}</p>
+                      <p style={{ fontSize: 12, color: 'var(--text-faint)' }}>PDF, JPG, PNG — max 10 MB</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -158,9 +345,9 @@ export default function BusinessRegisterPage() {
             <div className="fade-in">
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Contact Person</h2>
               <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 32 }}>The authorised representative for this account.</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px,100%),1fr))', gap: 18 }}>
                 <div style={{ gridColumn: '1/-1' }}>
-                  <label className="label">Full Name</label>
+                  <label className="label">Full Name <span style={{ color: 'var(--risk-high)' }}>*</span></label>
                   <input className="input" placeholder="Director or authorised representative" value={form.contactName} onChange={e => update('contactName', e.target.value)} />
                 </div>
                 <div>
@@ -168,11 +355,11 @@ export default function BusinessRegisterPage() {
                   <input className="input" placeholder="+255 712 …" value={form.contactPhone} onChange={e => update('contactPhone', e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">Email</label>
+                  <label className="label">Email <span style={{ color: 'var(--risk-high)' }}>*</span></label>
                   <input className="input" type="email" placeholder="director@company.com" value={form.contactEmail} onChange={e => update('contactEmail', e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">Password</label>
+                  <label className="label">Password <span style={{ color: 'var(--risk-high)' }}>*</span></label>
                   <input className="input" type="password" placeholder="Minimum 8 characters" value={form.password} onChange={e => update('password', e.target.value)} />
                 </div>
                 <div>
@@ -189,38 +376,51 @@ export default function BusinessRegisterPage() {
               <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 32 }}>Confirm all details before submitting for verification.</p>
               <div style={{ background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden', marginBottom: 28 }}>
                 {[
-                  { label: 'Business Name', value: form.businessName || '—' },
-                  { label: 'Industry', value: form.industry },
-                  { label: 'Country', value: form.country },
-                  { label: 'City', value: form.city || '—' },
-                  { label: 'Address', value: form.address || '—' },
-                  { label: 'TIN', value: form.tinNumber || '—' },
-                  { label: 'Reg. Number', value: form.registrationNumber || '—' },
-                  { label: 'Contact Name', value: form.contactName || '—' },
-                  { label: 'Contact Phone', value: form.contactPhone || '—' },
-                  { label: 'Contact Email', value: form.contactEmail || '—' },
+                  { label: 'Business Name',  value: form.businessName || '—' },
+                  { label: 'Industry',       value: form.industry },
+                  { label: 'Country',        value: form.country },
+                  { label: 'City',           value: form.city || '—' },
+                  { label: 'Address',        value: form.address || '—' },
+                  { label: 'TIN',            value: form.tinNumber || '—' },
+                  { label: 'Reg. Number',    value: form.registrationNumber || '—' },
+                  { label: 'Contact Name',   value: form.contactName || '—' },
+                  { label: 'Contact Email',  value: form.contactEmail || '—' },
+                  { label: 'Certificate',    value: certFile ? certFile.name : 'Not uploaded' },
                 ].map((row, i, arr) => (
                   <div key={row.label} style={{ display: 'flex', padding: '12px 18px', borderBottom: i < arr.length - 1 ? '1px solid var(--border-lt)' : 'none', gap: 16 }}>
                     <span style={{ fontSize: 13, color: 'var(--text-muted)', width: 160, flexShrink: 0 }}>{row.label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{row.value}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {row.label === 'Certificate' && certFile && <CheckCircle style={{ width: 13, height: 13, color: 'var(--risk-low)' }} />}
+                      {row.value}
+                    </span>
                   </div>
                 ))}
               </div>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, cursor: 'pointer' }}>
                 <input type="checkbox" style={{ marginTop: 2, accentColor: 'var(--gold)' }} />
-                I am an authorised representative of this business and confirm all information is accurate. I agree to TrustNet's Terms of Service.
+                I am an authorised representative of this business and confirm all information is accurate. I agree to TrustNet&apos;s{' '}
+                <Link href="/terms" style={{ color: 'var(--forest-mid)', textDecoration: 'none' }}>Terms of Service</Link>.
               </label>
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
+          {errors.length > 0 && (
+            <ul style={{ margin: '16px 0 0', padding: '12px 16px', background: 'var(--risk-high-bg)', border: '1px solid var(--risk-high)', borderRadius: 8, listStyle: 'disc', paddingLeft: 32 }}>
+              {errors.map((e, i) => <li key={i} style={{ fontSize: 13, color: 'var(--risk-high)', lineHeight: 1.6 }}>{e}</li>)}
+            </ul>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
             {step > 1
-              ? <button className="btn btn-outline-dark" onClick={() => setStep(s => (s - 1) as Step)}>← Back</button>
+              ? <button className="btn btn-outline-dark" onClick={() => { setErrors([]); setStep(s => (s - 1) as Step) }}>← Back</button>
               : <Link href="/register" className="btn btn-outline-dark">← Account types</Link>
             }
             {step < 4
-              ? <button className="btn btn-gold" onClick={() => setStep(s => (s + 1) as Step)}>Continue <ChevronRight className="w-4 h-4" /></button>
-              : <button className="btn btn-gold" onClick={() => setSubmitted(true)}>Submit Application →</button>
+              ? <button className="btn btn-gold" onClick={handleContinue}>Continue <ChevronRight className="w-4 h-4" /></button>
+              : <button className="btn btn-gold" onClick={handleSubmit} disabled={loading} style={{ opacity: loading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {loading ? 'Submitting…' : 'Submit Application →'}
+                </button>
             }
           </div>
         </div>

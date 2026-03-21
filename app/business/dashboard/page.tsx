@@ -1,13 +1,15 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Nav from '@/app/components/Nav'
 import ScoreRing from '@/app/components/ScoreRing'
 import { users, companies, credentials, trustChecks, financialInstitutions } from '@/lib/store'
 import { computeScore } from '@/lib/scoring'
 import { INSTITUTION_LABELS, FinancialInstitutionType } from '@/lib/types'
+import { IS_DEMO_MODE, createSupabaseBrowserClient } from '@/lib/supabase'
+import type { CompanyRow, TrustCheckRow } from '@/lib/supabase'
 import {
   Building2, CheckCircle, Clock, XCircle, Search,
-  ChevronRight, Banknote, Shield, AlertCircle, Globe,
+  ChevronRight, Banknote, Shield, AlertCircle, Globe, Loader2,
 } from 'lucide-react'
 
 const COMPANY_ID = 'co-1'
@@ -45,7 +47,47 @@ function getRiskBadgeStyle(tier: string) {
 }
 
 export default function BusinessDashboardPage() {
-  const company = companies.find(c => c.id === COMPANY_ID)!
+  // ─── Real Supabase data ───────────────────────────────────────────────────
+  const [realCompany,  setRealCompany]  = useState<CompanyRow | null>(null)
+  const [realChecks,   setRealChecks]   = useState<TrustCheckRow[] | null>(null)
+  const [authLoading,  setAuthLoading]  = useState(!IS_DEMO_MODE)
+
+  useEffect(() => {
+    if (IS_DEMO_MODE) return
+    const client = createSupabaseBrowserClient()
+    client.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { setAuthLoading(false); return }
+      const compRes = await client.from('companies').select('*').eq('owner_id', user.id).single()
+      const compData = compRes.data as CompanyRow | null
+      if (compData) setRealCompany(compData)
+      if (compData) {
+        const checksRes = await client.from('trust_checks').select('*').eq('requester_company_id', compData.id).order('created_at', { ascending: false })
+        if (checksRes.data) setRealChecks(checksRes.data as TrustCheckRow[])
+      }
+      setAuthLoading(false)
+    }).catch(() => setAuthLoading(false))
+  }, [])
+
+  // ─── Determine display data ───────────────────────────────────────────────
+  const demoCompany = companies.find(c => c.id === COMPANY_ID)!
+  const isRealUser  = !IS_DEMO_MODE && realCompany !== null
+
+  // Unified company display values
+  const businessName   = isRealUser ? realCompany!.business_name          : demoCompany.businessName
+  const verStatus      = isRealUser ? realCompany!.verification_status    : demoCompany.verificationStatus
+  const subPlan        = isRealUser ? realCompany!.subscription_plan      : demoCompany.subscriptionPlan
+  const compIndustry   = isRealUser ? (realCompany!.industry ?? '')       : demoCompany.industry
+  const compCountry    = isRealUser ? (realCompany!.country ?? '')        : demoCompany.country
+  const checksRem      = isRealUser ? realCompany!.checks_remaining       : demoCompany.checksRemaining
+  const checksUsed     = isRealUser ? realCompany!.checks_used            : demoCompany.checksUsed
+  const compTin        = isRealUser ? (realCompany!.tin_number ?? '—')    : demoCompany.tinNumber
+  const compReg        = isRealUser ? (realCompany!.registration_number ?? '—') : demoCompany.tinNumber.replace('TIN-', 'REG-')
+  const compPhone      = isRealUser ? (realCompany!.contact_phone ?? '—') : (demoCompany.contactPhone ?? '—')
+  const compEmail      = isRealUser ? (realCompany!.contact_email ?? '—') : (demoCompany.contactEmail ?? '—')
+  const compMemberSince = isRealUser
+    ? new Date(realCompany!.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : demoCompany.memberSince
+
   const [tab, setTab] = useState<'talent' | 'checks' | 'profile' | 'institutions'>('talent')
   const [query, setQuery] = useState('')
   const [minScore, setMinScore] = useState(0)
@@ -55,10 +97,10 @@ export default function BusinessDashboardPage() {
   const [toast, setToast] = useState(false)
 
   // Profile edit state
-  const [desc, setDesc] = useState(company.description ?? '')
-  const [website, setWebsite] = useState(company.website ?? '')
-  const [address, setAddress] = useState(company.address ?? '')
-  const [industry, setIndustry] = useState(company.industry ?? '')
+  const [desc, setDesc]       = useState(isRealUser ? (realCompany?.description ?? '') : (demoCompany.description ?? ''))
+  const [website, setWebsite] = useState(isRealUser ? (realCompany?.website ?? '')    : (demoCompany.website ?? ''))
+  const [address, setAddress] = useState(isRealUser ? (realCompany?.address ?? '')    : (demoCompany.address ?? ''))
+  const [industry, setIndustry] = useState(isRealUser ? (realCompany?.industry ?? '') : (demoCompany.industry ?? ''))
   const [profileSaved, setProfileSaved] = useState(false)
 
   const freelancers = users.filter(u => u.role === 'individual' && u.idVerificationStatus === 'verified')
@@ -68,12 +110,45 @@ export default function BusinessDashboardPage() {
     u.trustScore >= minScore &&
     (countryFilter === '' || u.country === countryFilter)
   )
-  const checks = trustChecks.filter(tc => tc.requesterCompanyId === COMPANY_ID)
+
+  // Trust checks — real or demo
+  interface DisplayCheck { id: string; subjectName: string; subjectInitials: string; consentStatus: string; createdAt: string; scoreAtCheck?: number; riskTier?: string }
+  const checks: DisplayCheck[] = isRealUser
+    ? (realChecks ?? []).map(tc => ({
+        id: tc.id,
+        subjectName: 'Verified User',
+        subjectInitials: 'VU',
+        consentStatus: tc.consent_status,
+        createdAt: tc.created_at,
+      }))
+    : trustChecks.filter(tc => tc.requesterCompanyId === COMPANY_ID).map(tc => {
+        const subject = users.find(u => u.id === tc.subjectUserId)
+        return {
+          id: tc.id,
+          subjectName: subject?.fullName ?? 'Unknown',
+          subjectInitials: subject?.fullName.split(' ').map(n => n[0]).join('').slice(0, 2) ?? '?',
+          consentStatus: tc.consentStatus,
+          createdAt: tc.createdAt,
+          scoreAtCheck: tc.scoreAtCheck,
+          riskTier: tc.riskTier,
+        }
+      })
+
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--surface)', paddingTop: 64 }}>
+        <Nav />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 120 }}>
+          <Loader2 style={{ width: 32, height: 32, color: 'var(--forest-mid)', animation: 'spin 1s linear infinite' }} />
+        </div>
+      </div>
+    )
+  }
 
   const tabs = [
-    { id: 'talent' as const, label: 'Find Talent' },
-    { id: 'checks' as const, label: `Trust Checks (${checks.length})` },
-    { id: 'profile' as const, label: 'Company Profile' },
+    { id: 'talent'       as const, label: 'Find Talent' },
+    { id: 'checks'       as const, label: `Trust Checks (${checks.length})` },
+    { id: 'profile'      as const, label: 'Company Profile' },
     { id: 'institutions' as const, label: 'Connected Institutions' },
   ]
 
@@ -82,7 +157,18 @@ export default function BusinessDashboardPage() {
     setTimeout(() => setToast(false), 3000)
   }
 
-  function saveProfile() {
+  async function saveProfile() {
+    if (isRealUser && realCompany) {
+      try {
+        const client = createSupabaseBrowserClient()
+        await client.from('companies').update({
+          description: desc,
+          website,
+          address,
+          industry,
+        }).eq('id', realCompany.id)
+      } catch { /* ignore */ }
+    }
     setProfileSaved(true)
     setTimeout(() => setProfileSaved(false), 2000)
   }
@@ -114,31 +200,33 @@ export default function BusinessDashboardPage() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.01em' }}>
-                  {company.businessName}
+                  {businessName}
                 </h1>
-                {company.verificationStatus === 'verified' && (
+                {verStatus === 'verified' && (
                   <span className="badge badge-forest" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <CheckCircle style={{ width: 11, height: 11 }} /> Verified Business
                   </span>
                 )}
                 <span className="badge badge-gold" style={{ textTransform: 'capitalize' }}>
-                  {company.subscriptionPlan} Plan
+                  {subPlan} Plan
                 </span>
-                <span className="badge" style={{ background: 'rgba(27,94,59,.08)', color: 'var(--forest-mid)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Globe style={{ width: 10, height: 10 }} /> {company.industry}
-                </span>
+                {compIndustry && (
+                  <span className="badge" style={{ background: 'rgba(27,94,59,.08)', color: 'var(--forest-mid)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Globe style={{ width: 10, height: 10 }} /> {compIndustry}
+                  </span>
+                )}
               </div>
               <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 3 }}>
-                {company.country}
+                {compCountry}
               </p>
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, fontWeight: 700, color: 'var(--forest-mid)', lineHeight: 1 }}>
-              {company.checksRemaining}
+              {checksRem}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-              checks remaining · {company.checksUsed} used
+              checks remaining · {checksUsed} used
             </div>
           </div>
         </div>
@@ -304,14 +392,12 @@ export default function BusinessDashboardPage() {
             {tab === 'checks' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {checks.map(check => {
-                  const subject = users.find(u => u.id === check.subjectUserId)
                   const statusStyle = check.consentStatus === 'granted'
                     ? { bg: 'var(--risk-low-bg)', color: 'var(--risk-low)', icon: CheckCircle }
                     : check.consentStatus === 'pending'
                       ? { bg: 'var(--risk-med-bg)', color: 'var(--risk-med)', icon: Clock }
                       : { bg: 'var(--risk-high-bg)', color: 'var(--risk-high)', icon: XCircle }
                   const Icon = statusStyle.icon
-                  const initials = subject?.fullName.split(' ').map(n => n[0]).join('').slice(0, 2) ?? '?'
 
                   return (
                     <div
@@ -319,10 +405,10 @@ export default function BusinessDashboardPage() {
                       style={{ display: 'flex', alignItems: 'center', gap: 14, border: '1px solid var(--border-lt)', borderRadius: 10, padding: '14px 16px', background: 'var(--white)' }}
                     >
                       <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 600, color: 'var(--text-mid)', flexShrink: 0 }}>
-                        {initials}
+                        {check.subjectInitials}
                       </div>
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', margin: 0 }}>{subject?.fullName ?? 'Unknown'}</p>
+                        <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', margin: 0 }}>{check.subjectName}</p>
                         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>{timeAgo(check.createdAt)}</p>
                       </div>
                       {check.consentStatus === 'granted' && check.scoreAtCheck && (
@@ -373,14 +459,13 @@ export default function BusinessDashboardPage() {
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
                   {[
-                    { label: 'Business Name',       value: company.businessName },
-                    { label: 'TIN',                 value: company.tinNumber },
-                    { label: 'Registration Number', value: company.tinNumber.replace('TIN-', 'REG-') },
-                    { label: 'Country',             value: company.country },
-                    { label: 'Contact Phone',       value: company.contactPhone ?? '—' },
-                    { label: 'Contact Email',       value: company.contactEmail ?? '—' },
-                    { label: 'Founded',             value: company.foundedAt },
-                    { label: 'Member Since',        value: company.memberSince },
+                    { label: 'Business Name',       value: businessName },
+                    { label: 'TIN',                 value: compTin },
+                    { label: 'Registration Number', value: compReg },
+                    { label: 'Country',             value: compCountry },
+                    { label: 'Contact Phone',       value: compPhone },
+                    { label: 'Contact Email',       value: compEmail },
+                    { label: 'Member Since',        value: compMemberSince },
                   ].map(field => (
                     <div key={field.label}>
                       <label className="label">{field.label}</label>

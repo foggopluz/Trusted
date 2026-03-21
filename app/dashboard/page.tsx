@@ -1,17 +1,57 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Nav from '@/app/components/Nav'
 import ScoreRing from '@/app/components/ScoreRing'
 import { users, credentials, trustChecks, companies, financialInstitutions } from '@/lib/store'
-import { computeScore } from '@/lib/scoring'
+import { computeScore, computeScoreFromSupabase } from '@/lib/scoring'
 import { INSTITUTION_LABELS } from '@/lib/types'
+import { IS_DEMO_MODE, createSupabaseBrowserClient } from '@/lib/supabase'
+import type { ProfileRow, CredentialRow, TrustCheckRow } from '@/lib/supabase'
 import {
   Shield, Briefcase, ThumbsUp, DollarSign, Award,
-  Clock, CheckCircle, XCircle, Share2, Search, PlusCircle,
+  Clock, CheckCircle, XCircle, Share2, Search, PlusCircle, Loader2,
 } from 'lucide-react'
 
-const USER_ID = 'u-1'
+// ─── Demo fallback user ───────────────────────────────────────────────────────
+const DEMO_USER_ID = 'u-1'
+
+// ─── Credential display types ─────────────────────────────────────────────────
+
+interface DisplayCredential {
+  id: string
+  credentialType: string
+  title: string
+  issuerLabel: string
+  confidence: number
+  provenanceWeight: number
+  status: string
+  issuedAt: string
+  expiresAt?: string
+}
+
+interface DisplayTrustCheck {
+  id: string
+  requesterCompanyName: string
+  consentStatus: string
+  createdAt: string
+  scoreAtCheck?: number
+  riskTier?: string
+}
+
+interface UnifiedScore {
+  score: number
+  riskTier: 'low' | 'medium' | 'high'
+  confidence: 'low' | 'medium' | 'high'
+  breakdown: {
+    identity: number
+    financial: number
+    contractPerformance: number
+    networkTrust: number
+  }
+}
+
+// ─── Credential icon / colour maps ────────────────────────────────────────────
 
 const CRED_ICON: Record<string, React.ElementType> = {
   identity: Shield,
@@ -22,28 +62,30 @@ const CRED_ICON: Record<string, React.ElementType> = {
 }
 
 const CRED_ACCENT: Record<string, string> = {
-  identity: 'var(--forest-mid)',
-  financial: 'var(--gold)',
+  identity:    'var(--forest-mid)',
+  financial:   'var(--gold)',
   work_history: '#7C4FC4',
-  endorsement: '#C07A0A',
-  skill: '#B83232',
+  endorsement:  '#C07A0A',
+  skill:        '#B83232',
 }
 
 const CRED_BG: Record<string, string> = {
-  identity: 'rgba(27,94,59,.1)',
-  financial: 'var(--gold-pale)',
+  identity:    'rgba(27,94,59,.1)',
+  financial:   'var(--gold-pale)',
   work_history: 'rgba(124,79,196,.1)',
-  endorsement: 'rgba(192,122,10,.1)',
-  skill: 'rgba(184,50,50,.1)',
+  endorsement:  'rgba(192,122,10,.1)',
+  skill:        'rgba(184,50,50,.1)',
 }
 
 const CRED_LABEL: Record<string, string> = {
-  identity: 'Identity',
-  financial: 'Financial',
+  identity:    'Identity',
+  financial:   'Financial',
   work_history: 'Work History',
-  endorsement: 'Endorsement',
-  skill: 'Skill',
+  endorsement:  'Endorsement',
+  skill:        'Skill',
 }
+
+// ─── Helper functions ─────────────────────────────────────────────────────────
 
 function timeAgo(d: string) {
   const mo = Math.floor((Date.now() - new Date(d).getTime()) / (1000 * 60 * 60 * 24 * 30))
@@ -55,16 +97,171 @@ function truncateDid(did: string) {
   return did.slice(0, 14) + '…' + did.slice(-8)
 }
 
-export default function DashboardPage() {
-  const user = users.find(u => u.id === USER_ID)!
-  const userCreds = credentials.filter(c => c.subjectUserId === USER_ID)
-  const scoreResult = computeScore(userCreds)
-  const userTrustChecks = trustChecks.filter(tc => tc.subjectUserId === USER_ID)
+// Map store Credential → DisplayCredential
+function storeCredToDisplay(cred: (typeof credentials)[0]): DisplayCredential {
+  const inst = cred.issuerInstitutionId
+    ? financialInstitutions.find(f => f.id === cred.issuerInstitutionId)
+    : null
+  const issuerLabel = inst
+    ? inst.name
+    : cred.issuerUserId === 'u-admin'
+      ? 'TrustNet'
+      : cred.issuerCompanyId
+        ? (companies.find(c => c.id === cred.issuerCompanyId)?.businessName ?? 'Company')
+        : cred.issuerUserId
+          ? (users.find(u => u.id === cred.issuerUserId)?.fullName ?? 'Peer')
+          : 'Unknown'
+  const provenanceWeight = inst
+    ? inst.provenanceWeight
+    : cred.issuerUserId === 'u-admin'
+      ? 0.98
+      : cred.issuerCompanyId
+        ? 0.85
+        : 0.70
+  return {
+    id: cred.id,
+    credentialType: cred.credentialType,
+    title: cred.title,
+    issuerLabel,
+    confidence: cred.confidence,
+    provenanceWeight,
+    status: cred.status,
+    issuedAt: cred.issuedAt,
+    expiresAt: cred.expiresAt,
+  }
+}
 
-  const [tab, setTab] = useState<'wallet' | 'checks' | 'profile'>('wallet')
-  const [didCopied, setDidCopied] = useState(false)
+// Map Supabase CredentialRow → DisplayCredential
+function supabaseCredToDisplay(cred: CredentialRow): DisplayCredential {
+  return {
+    id: cred.id,
+    credentialType: cred.type,
+    title: cred.title ?? cred.type,
+    issuerLabel: cred.issuer_name ?? 'TrustNet',
+    confidence: cred.confidence ?? 0.7,
+    provenanceWeight: cred.provenance_weight ?? 0.7,
+    status: cred.status,
+    issuedAt: cred.issued_at,
+  }
+}
+
+// Merge ScoreResult or SupabaseScoreResult → UnifiedScore
+function toUnifiedScore(
+  result: ReturnType<typeof computeScore> | ReturnType<typeof computeScoreFromSupabase>
+): UnifiedScore {
+  if ('breakdown' in result && 'identity' in result.breakdown && 'financial' in result.breakdown) {
+    // store ScoreResult
+    const r = result as ReturnType<typeof computeScore>
+    return {
+      score: r.score,
+      riskTier: r.riskTier,
+      confidence: r.confidence,
+      breakdown: {
+        identity: r.breakdown.identity,
+        financial: r.breakdown.financial,
+        contractPerformance: r.breakdown.contractPerformance,
+        networkTrust: r.breakdown.networkTrust,
+      },
+    }
+  }
+  // SupabaseScoreResult
+  const r = result as ReturnType<typeof computeScoreFromSupabase>
+  return {
+    score: r.score,
+    riskTier: r.riskTier,
+    confidence: r.confidence,
+    breakdown: {
+      identity: r.breakdown.identity,
+      financial: r.breakdown.payments,
+      contractPerformance: r.breakdown.employment,
+      networkTrust: r.breakdown.endorsements,
+    },
+  }
+}
+
+// ─── Dashboard Page ───────────────────────────────────────────────────────────
+
+export default function DashboardPage() {
+  const [realProfile, setRealProfile] = useState<ProfileRow | null>(null)
+  const [realCreds, setRealCreds]     = useState<CredentialRow[] | null>(null)
+  const [realChecks, setRealChecks]   = useState<TrustCheckRow[] | null>(null)
+  const [authLoading, setAuthLoading] = useState(!IS_DEMO_MODE)
+
+  useEffect(() => {
+    if (IS_DEMO_MODE) return
+    const client = createSupabaseBrowserClient()
+    client.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { setAuthLoading(false); return }
+      const profileRes = await client.from('profiles').select('*').eq('id', user.id).single()
+      const credsRes   = await client.from('credentials').select('*').eq('user_id', user.id).order('issued_at', { ascending: false })
+      const checksRes  = await client.from('trust_checks').select('*').eq('subject_id', user.id).order('created_at', { ascending: false })
+      if (profileRes.data) setRealProfile(profileRes.data as ProfileRow)
+      if (credsRes.data)   setRealCreds(credsRes.data as CredentialRow[])
+      if (checksRes.data)  setRealChecks(checksRes.data as TrustCheckRow[])
+      setAuthLoading(false)
+    }).catch(() => setAuthLoading(false))
+  }, [])
+
+  // ─── Determine display data ─────────────────────────────────────────────────
+  const demoUser   = users.find(u => u.id === DEMO_USER_ID)!
+  const isRealUser = !IS_DEMO_MODE && realProfile !== null
+
+  const displayName        = isRealUser ? realProfile!.full_name              : demoUser.fullName
+  const displayEmail       = isRealUser ? (realProfile!.email ?? '')          : (demoUser.email ?? '')
+  const displayPhone       = isRealUser ? (realProfile!.phone ?? '')          : demoUser.phone
+  const displayProfession  = isRealUser ? (realProfile!.profession ?? 'Member') : demoUser.profession
+  const displayCity        = isRealUser ? (realProfile!.city ?? '')           : demoUser.location
+  const displayCountry     = isRealUser ? (realProfile!.country ?? '')        : demoUser.country
+  const displayDid         = isRealUser
+    ? (realProfile!.did ?? `did:trustnet:${realProfile!.id.slice(0, 16)}`)
+    : demoUser.did
+  const displayMemberSince = isRealUser ? (realProfile!.member_since ?? 'Recently') : demoUser.memberSince
+  const displayVerified    = isRealUser ? realProfile!.id_verification_status  : demoUser.idVerificationStatus
+  const displayBio         = isRealUser ? (realProfile!.bio ?? '')             : (demoUser.bio ?? '')
+
+  // Credentials
+  const demoCreds = credentials.filter(c => c.subjectUserId === DEMO_USER_ID)
+  const displayCreds: DisplayCredential[] = isRealUser
+    ? (realCreds ?? []).map(supabaseCredToDisplay)
+    : demoCreds.map(storeCredToDisplay)
+
+  // Score
+  const rawScore = isRealUser
+    ? computeScoreFromSupabase(
+        (realCreds ?? []).map(c => ({
+          id: c.id,
+          type: c.type as 'employment' | 'payment' | 'endorsement' | 'identity' | 'skill',
+          status: c.status as 'pending' | 'approved' | 'rejected',
+          created_at: c.created_at,
+        })),
+        realProfile!.id_verification_status,
+      )
+    : computeScore(demoCreds)
+  const scoreResult = toUnifiedScore(rawScore)
+
+  // Trust checks
+  const demoTrustChecks = trustChecks.filter(tc => tc.subjectUserId === DEMO_USER_ID)
+  const displayChecks: DisplayTrustCheck[] = isRealUser
+    ? (realChecks ?? []).map(tc => ({
+        id: tc.id,
+        requesterCompanyName: tc.requester_company_id ?? 'A Business',
+        consentStatus: tc.consent_status,
+        createdAt: tc.created_at,
+      }))
+    : demoTrustChecks.map(tc => ({
+        id: tc.id,
+        requesterCompanyName: companies.find(c => c.id === tc.requesterCompanyId)?.businessName ?? 'Unknown',
+        consentStatus: tc.consentStatus,
+        createdAt: tc.createdAt,
+        scoreAtCheck: tc.scoreAtCheck,
+        riskTier: tc.riskTier,
+      }))
+
+  // ─── Local UI state ─────────────────────────────────────────────────────────
+  const [tab, setTab]                     = useState<'wallet' | 'checks' | 'profile'>('wallet')
+  const [didCopied, setDidCopied]         = useState(false)
   const [trustCheckModal, setTrustCheckModal] = useState(false)
-  const [trustCheckSent, setTrustCheckSent] = useState(false)
+  const [trustCheckSent, setTrustCheckSent]   = useState(false)
   const [trustCheckTarget, setTrustCheckTarget] = useState('')
 
   function submitTrustCheck() {
@@ -74,27 +271,40 @@ export default function DashboardPage() {
   }
 
   function copyDid() {
-    navigator.clipboard.writeText(user.did).catch(() => undefined)
+    navigator.clipboard.writeText(displayDid).catch(() => undefined)
     setDidCopied(true)
     setTimeout(() => setDidCopied(false), 2000)
   }
 
-  const initials = user.fullName.split(' ').map(n => n[0]).join('').slice(0, 2)
+  const initials = displayName.split(' ').map(n => n[0]).join('').slice(0, 2)
+  const pendingCount = displayChecks.filter(tc => tc.consentStatus === 'pending').length
 
   const tabs = [
-    { id: 'wallet' as const, label: 'Trust Wallet' },
-    { id: 'checks' as const, label: 'Consent Requests' },
+    { id: 'wallet'  as const, label: 'Trust Wallet' },
+    { id: 'checks'  as const, label: 'Consent Requests' },
     { id: 'profile' as const, label: 'My Profile' },
   ]
 
-  const pendingCount = userTrustChecks.filter(tc => tc.consentStatus === 'pending').length
-
   const breakdown = [
-    { label: 'Identity Verification', value: scoreResult.breakdown.identity,           max: 150,  color: 'var(--forest-mid)' },
-    { label: 'Financial History',      value: scoreResult.breakdown.financial,           max: 250,  color: 'var(--gold)' },
-    { label: 'Work Contracts',         value: scoreResult.breakdown.contractPerformance, max: 250,  color: '#7C4FC4' },
-    { label: 'Network Endorsements',   value: scoreResult.breakdown.networkTrust,        max: 200,  color: '#C07A0A' },
+    { label: 'Identity Verification', value: scoreResult.breakdown.identity,           max: 150, color: 'var(--forest-mid)' },
+    { label: 'Financial History',      value: scoreResult.breakdown.financial,           max: 250, color: 'var(--gold)' },
+    { label: 'Work Contracts',         value: scoreResult.breakdown.contractPerformance, max: 250, color: '#7C4FC4' },
+    { label: 'Network Endorsements',   value: scoreResult.breakdown.networkTrust,        max: 200, color: '#C07A0A' },
   ]
+
+  // Loading spinner for real-mode auth check
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--surface)', paddingTop: 64 }}>
+        <Nav />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 120 }}>
+          <Loader2 style={{ width: 32, height: 32, color: 'var(--forest-mid)', animation: 'spin 1s linear infinite' }} />
+        </div>
+      </div>
+    )
+  }
+
+  const profileUserId = isRealUser ? realProfile!.id : DEMO_USER_ID
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--surface)', paddingTop: 64 }}>
@@ -104,7 +314,6 @@ export default function DashboardPage() {
 
         {/* Header */}
         <div className="fade-up" style={{ display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 32 }}>
-          {/* Avatar — dark bg, gold border */}
           <div style={{
             width: 64, height: 64, borderRadius: '50%',
             background: 'var(--dark)',
@@ -117,32 +326,33 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ flex: 1 }}>
-            {/* Name + verified badge */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.01em' }}>
-                {user.fullName}
+                {displayName}
               </h1>
-              {user.idVerificationStatus === 'verified' && (
+              {displayVerified === 'verified' && (
                 <span className="badge badge-forest" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <CheckCircle style={{ width: 12, height: 12 }} /> Verified
                 </span>
               )}
+              {displayVerified === 'pending' && (
+                <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--risk-med-bg)', color: 'var(--risk-med)' }}>
+                  <Clock style={{ width: 12, height: 12 }} /> Verification Pending
+                </span>
+              )}
             </div>
 
-            {/* Profession · Location */}
             <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
-              {user.profession} · {user.location}, {user.country}
+              {displayProfession}{displayCity ? ` · ${displayCity}` : ''}{displayCountry ? `, ${displayCountry}` : ''}
             </p>
 
-            {/* Member since */}
             <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: '2px 0 4px' }}>
-              Member since {user.memberSince}
+              Member since {displayMemberSince}
             </p>
 
-            {/* DID chip — truncated, monospace, copy-on-click */}
             <button
               onClick={copyDid}
-              title={didCopied ? 'Copied!' : `Copy DID: ${user.did}`}
+              title={didCopied ? 'Copied!' : `Copy DID: ${displayDid}`}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 fontFamily: 'monospace', fontSize: 11,
@@ -154,7 +364,7 @@ export default function DashboardPage() {
                 transition: 'color .15s, border-color .15s',
               }}
             >
-              {didCopied ? '✓ Copied' : truncateDid(user.did)}
+              {didCopied ? '✓ Copied' : truncateDid(displayDid)}
             </button>
           </div>
         </div>
@@ -211,45 +421,25 @@ export default function DashboardPage() {
                 Quick Actions
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {/* Share My Profile → /profile/u-1 */}
                 <Link
-                  href="/profile/u-1"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 12px', borderRadius: 8,
-                    border: '1px solid var(--border)', background: 'var(--surface)',
-                    fontSize: 13, fontWeight: 500, color: 'var(--text-mid)',
-                    textDecoration: 'none',
-                  }}
+                  href={`/profile/${profileUserId}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, fontWeight: 500, color: 'var(--text-mid)', textDecoration: 'none' }}
                 >
                   <Share2 style={{ width: 15, height: 15, color: 'var(--forest-mid)' }} />
                   Share My Profile
                 </Link>
 
-                {/* Request Trust Check */}
                 <button
                   onClick={() => setTrustCheckModal(true)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 12px', borderRadius: 8,
-                    border: '1px solid var(--border)', background: 'var(--surface)',
-                    fontSize: 13, fontWeight: 500, color: 'var(--text-mid)', cursor: 'pointer',
-                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, fontWeight: 500, color: 'var(--text-mid)', cursor: 'pointer' }}
                 >
                   <Search style={{ width: 15, height: 15, color: 'var(--gold)' }} />
                   Request Trust Check
                 </button>
 
-                {/* Add Credential */}
                 <Link
                   href="/credentials"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 12px', borderRadius: 8,
-                    border: '1px solid var(--border)', background: 'var(--surface)',
-                    fontSize: 13, fontWeight: 500, color: 'var(--text-mid)',
-                    textDecoration: 'none',
-                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, fontWeight: 500, color: 'var(--text-mid)', textDecoration: 'none' }}
                 >
                   <PlusCircle style={{ width: 15, height: 15, color: '#7C4FC4' }} />
                   Add Credential
@@ -280,14 +470,19 @@ export default function DashboardPage() {
             </div>
 
             <div style={{ padding: 24 }}>
-              {tab === 'wallet' && (
-                <WalletTab userCreds={userCreds} />
-              )}
-              {tab === 'checks' && (
-                <ChecksTab trustChecks={userTrustChecks} />
-              )}
+              {tab === 'wallet' && <WalletTab creds={displayCreds} />}
+              {tab === 'checks' && <ChecksTab checks={displayChecks} />}
               {tab === 'profile' && (
-                <ProfileTab user={user} />
+                <ProfileTab
+                  fullName={displayName}
+                  email={displayEmail}
+                  phone={displayPhone}
+                  profession={displayProfession}
+                  city={displayCity}
+                  bio={displayBio}
+                  isRealUser={isRealUser}
+                  userId={isRealUser ? realProfile!.id : undefined}
+                />
               )}
             </div>
           </div>
@@ -348,16 +543,18 @@ export default function DashboardPage() {
   )
 }
 
-function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
+// ─── WalletTab ────────────────────────────────────────────────────────────────
+
+function WalletTab({ creds }: { creds: DisplayCredential[] }) {
   const [filter, setFilter] = useState('all')
   const filters = ['all', 'identity', 'financial', 'work_history', 'endorsement', 'skill']
-  const filtered = filter === 'all' ? userCreds : userCreds.filter(c => c.credentialType === filter)
+  const filtered = filter === 'all' ? creds : creds.filter(c => c.credentialType === filter)
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
-          Credentials <span style={{ color: 'var(--text-muted)', fontSize: 15, fontWeight: 400 }}>({userCreds.length})</span>
+          Credentials <span style={{ color: 'var(--text-muted)', fontSize: 15, fontWeight: 400 }}>({creds.length})</span>
         </h3>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {filters.map(f => (
@@ -371,7 +568,7 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
                 color: filter === f ? 'var(--gold-lt)' : 'var(--text-muted)',
               }}
             >
-              {f === 'all' ? 'All' : CRED_LABEL[f]}
+              {f === 'all' ? 'All' : (CRED_LABEL[f] ?? f)}
             </button>
           ))}
         </div>
@@ -379,28 +576,9 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {filtered.map(cred => {
-          const Icon = CRED_ICON[cred.credentialType] ?? Shield
-          const inst = cred.issuerInstitutionId
-            ? financialInstitutions.find(f => f.id === cred.issuerInstitutionId)
-            : null
-          const issuerName = inst
-            ? inst.name
-            : cred.issuerUserId === 'u-admin'
-              ? 'TrustNet'
-              : cred.issuerCompanyId
-                ? (companies.find(c => c.id === cred.issuerCompanyId)?.businessName ?? 'Unknown')
-                : cred.issuerUserId
-                  ? (users.find(u => u.id === cred.issuerUserId)?.fullName ?? 'Peer')
-                  : 'Unknown'
-          const accent = CRED_ACCENT[cred.credentialType]
-          const bg = CRED_BG[cred.credentialType]
-          const provenance = inst
-            ? inst.provenanceWeight
-            : cred.issuerUserId === 'u-admin'
-              ? 0.98
-              : cred.issuerCompanyId
-                ? 0.85
-                : 0.70
+          const Icon    = CRED_ICON[cred.credentialType] ?? Shield
+          const accent  = CRED_ACCENT[cred.credentialType] ?? 'var(--text-mid)'
+          const bg      = CRED_BG[cred.credentialType] ?? 'var(--surface-2)'
 
           return (
             <div
@@ -413,8 +591,8 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                   <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{cred.title}</span>
-                  <span className="badge" style={{ background: CRED_BG[cred.credentialType], color: accent, fontSize: 10 }}>
-                    {CRED_LABEL[cred.credentialType]}
+                  <span className="badge" style={{ background: bg, color: accent, fontSize: 10 }}>
+                    {CRED_LABEL[cred.credentialType] ?? cred.credentialType}
                   </span>
                   <span className="badge" style={{
                     background: cred.status === 'active' ? 'var(--risk-low-bg)' : 'var(--surface-2)',
@@ -425,8 +603,7 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
                   </span>
                 </div>
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0' }}>
-                  <strong style={{ color: 'var(--text-mid)' }}>{issuerName}</strong>
-                  {inst && <> · {INSTITUTION_LABELS[inst.type]}</>}
+                  <strong style={{ color: 'var(--text-mid)' }}>{cred.issuerLabel}</strong>
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-faint)', marginTop: 6 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -443,15 +620,12 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
                     <strong style={{ color: accent }}>{(cred.confidence * 100).toFixed(0)}%</strong> confidence
                   </span>
                   <span>
-                    <strong style={{ color: 'var(--gold)' }}>{(provenance * 100).toFixed(0)}%</strong> provenance
+                    <strong style={{ color: 'var(--gold)' }}>{(cred.provenanceWeight * 100).toFixed(0)}%</strong> provenance
                   </span>
                 </div>
                 {/* Confidence bar */}
                 <div className="progress-track" style={{ marginTop: 8 }}>
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${cred.confidence * 100}%`, background: accent }}
-                  />
+                  <div className="progress-fill" style={{ width: `${cred.confidence * 100}%`, background: accent }} />
                 </div>
               </div>
             </div>
@@ -460,7 +634,10 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
         {filtered.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
             <Shield style={{ width: 32, height: 32, margin: '0 auto 12px', opacity: 0.3 }} />
-            <p style={{ fontSize: 14 }}>No credentials in this category</p>
+            <p style={{ fontSize: 14 }}>No credentials in this category yet</p>
+            <Link href="/credentials" style={{ fontSize: 13, color: 'var(--forest-mid)', textDecoration: 'none', fontWeight: 600 }}>
+              + Add a credential
+            </Link>
           </div>
         )}
       </div>
@@ -468,10 +645,10 @@ function WalletTab({ userCreds }: { userCreds: typeof credentials }) {
   )
 }
 
-function ChecksTab({ trustChecks: checks }: { trustChecks: typeof trustChecks }) {
-  const [decisions, setDecisions] = useState<Partial<Record<string, 'granted' | 'denied'>>>({})
+// ─── ChecksTab ────────────────────────────────────────────────────────────────
 
-  const pendingChecks = checks.filter(tc => (decisions[tc.id] ?? tc.consentStatus) === 'pending')
+function ChecksTab({ checks }: { checks: DisplayTrustCheck[] }) {
+  const [decisions, setDecisions] = useState<Partial<Record<string, 'granted' | 'denied'>>>({})
 
   return (
     <div>
@@ -479,21 +656,16 @@ function ChecksTab({ trustChecks: checks }: { trustChecks: typeof trustChecks })
         Businesses and lenders request your consent before viewing your trust profile.
       </p>
 
-      {checks.length === 0 || pendingChecks.length === 0 && checks.every(tc => decisions[tc.id] !== undefined || tc.consentStatus !== 'pending') ? (
-        checks.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
-            <CheckCircle style={{ width: 32, height: 32, margin: '0 auto 12px', opacity: 0.3 }} />
-            <p style={{ fontSize: 14 }}>No consent requests yet</p>
-          </div>
-        ) : null
-      ) : null}
-
-      {checks.length > 0 && (
+      {checks.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+          <CheckCircle style={{ width: 32, height: 32, margin: '0 auto 12px', opacity: 0.3 }} />
+          <p style={{ fontSize: 14 }}>No consent requests yet</p>
+        </div>
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {checks.map(check => {
-            const co = companies.find(c => c.id === check.requesterCompanyId)
             const decision = decisions[check.id]
-            const status = decision ?? check.consentStatus
+            const status   = decision ?? check.consentStatus
 
             return (
               <div
@@ -503,7 +675,7 @@ function ChecksTab({ trustChecks: checks }: { trustChecks: typeof trustChecks })
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                   <div>
                     <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', margin: 0 }}>
-                      {co?.businessName ?? 'Unknown Company'}
+                      {check.requesterCompanyName}
                     </p>
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                       {timeAgo(check.createdAt)}
@@ -558,13 +730,39 @@ function ChecksTab({ trustChecks: checks }: { trustChecks: typeof trustChecks })
   )
 }
 
-function ProfileTab({ user }: { user: typeof users[0] }) {
-  const [bio, setBio] = useState(user.bio ?? '')
-  const [profession, setProfession] = useState(user.profession)
-  const [city, setCity] = useState(user.location)
-  const [saved, setSaved] = useState(false)
+// ─── ProfileTab ───────────────────────────────────────────────────────────────
 
-  function handleSave() {
+interface ProfileTabProps {
+  fullName: string
+  email: string
+  phone: string
+  profession: string
+  city: string
+  bio: string
+  isRealUser: boolean
+  userId?: string
+}
+
+function ProfileTab({ fullName, email, phone, profession, city, bio, isRealUser, userId }: ProfileTabProps) {
+  const [bioVal,        setBioVal]        = useState(bio)
+  const [professionVal, setProfessionVal] = useState(profession)
+  const [cityVal,       setCityVal]       = useState(city)
+  const [saved,         setSaved]         = useState(false)
+  const [saving,        setSaving]        = useState(false)
+
+  async function handleSave() {
+    if (isRealUser && userId) {
+      setSaving(true)
+      try {
+        const client = createSupabaseBrowserClient()
+        await client.from('profiles').update({
+          bio: bioVal,
+          profession: professionVal,
+          city: cityVal,
+        }).eq('id', userId)
+      } catch { /* ignore */ }
+      setSaving(false)
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -584,13 +782,12 @@ function ProfileTab({ user }: { user: typeof users[0] }) {
       </h3>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {/* Editable fields */}
         <div>
           <label className="label">Bio</label>
           <textarea
             className="input"
-            value={bio}
-            onChange={e => setBio(e.target.value)}
+            value={bioVal}
+            onChange={e => setBioVal(e.target.value)}
             rows={4}
             placeholder="Tell others about yourself…"
             style={{ resize: 'vertical' }}
@@ -601,8 +798,8 @@ function ProfileTab({ user }: { user: typeof users[0] }) {
           <label className="label">Profession / Title</label>
           <input
             className="input"
-            value={profession}
-            onChange={e => setProfession(e.target.value)}
+            value={professionVal}
+            onChange={e => setProfessionVal(e.target.value)}
           />
         </div>
 
@@ -610,43 +807,29 @@ function ProfileTab({ user }: { user: typeof users[0] }) {
           <label className="label">City</label>
           <input
             className="input"
-            value={city}
-            onChange={e => setCity(e.target.value)}
+            value={cityVal}
+            onChange={e => setCityVal(e.target.value)}
           />
         </div>
 
-        {/* Locked / read-only fields */}
+        {/* Locked fields */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingTop: 4 }}>
           <div>
             <label className="label" style={{ color: 'var(--text-faint)' }}>Full Name <span style={{ fontWeight: 400, fontSize: 11 }}>(locked)</span></label>
-            <input
-              readOnly
-              disabled
-              value={user.fullName}
-              style={lockedFieldStyle}
-            />
+            <input readOnly disabled value={fullName} style={lockedFieldStyle} />
           </div>
           <div>
             <label className="label" style={{ color: 'var(--text-faint)' }}>Email <span style={{ fontWeight: 400, fontSize: 11 }}>(locked)</span></label>
-            <input
-              readOnly
-              disabled
-              value={user.email ?? ''}
-              style={lockedFieldStyle}
-            />
+            <input readOnly disabled value={email} style={lockedFieldStyle} />
           </div>
-          <div>
-            <label className="label" style={{ color: 'var(--text-faint)' }}>Phone <span style={{ fontWeight: 400, fontSize: 11 }}>(locked)</span></label>
-            <input
-              readOnly
-              disabled
-              value={user.phone}
-              style={lockedFieldStyle}
-            />
-          </div>
+          {phone && (
+            <div>
+              <label className="label" style={{ color: 'var(--text-faint)' }}>Phone <span style={{ fontWeight: 400, fontSize: 11 }}>(locked)</span></label>
+              <input readOnly disabled value={phone} style={lockedFieldStyle} />
+            </div>
+          )}
         </div>
 
-        {/* Notice about locked fields */}
         <div style={{ padding: '12px 16px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)' }}>
           To change your name or contact details, submit a request via{' '}
           <Link href="/settings" style={{ color: 'var(--forest-mid)', fontWeight: 600, textDecoration: 'none' }}>
@@ -655,8 +838,8 @@ function ProfileTab({ user }: { user: typeof users[0] }) {
         </div>
 
         <div>
-          <button onClick={handleSave} className="btn btn-forest">
-            {saved ? '✓ Saved' : 'Save Changes'}
+          <button onClick={handleSave} className="btn btn-forest" disabled={saving}>
+            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
           </button>
         </div>
       </div>
