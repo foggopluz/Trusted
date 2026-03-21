@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Nav from '@/app/components/Nav'
@@ -48,7 +48,7 @@ const allCountries = Array.from(new Set([
   ...companies.map(c => c.country),
 ])).sort()
 
-export default function LookupPage() {
+function LookupContent() {
   const searchParams = useSearchParams()
   const [query, setQuery] = useState(() => searchParams.get('q') ?? '')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
@@ -320,5 +320,17 @@ export default function LookupPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function LookupPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: '100vh', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--text-muted)', fontSize: 15 }}>Loading…</p>
+      </div>
+    }>
+      <LookupContent />
+    </Suspense>
   )
 }
