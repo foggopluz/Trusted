@@ -46,6 +46,36 @@ export default function LoginPage() {
       // 1. Check demo / session-registered credentials first (always works)
       const demoRedirect = checkDemoLogin(form.email, form.password)
       if (demoRedirect) {
+        // Store who is logged in for the dashboard to pick up
+        try {
+          const stored = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as {
+            email: string; name?: string; fullName?: string; phone?: string;
+            country?: string; city?: string; profession?: string; accountType?: string; role?: string;
+            businessName?: string; industry?: string;
+          }[]
+          const found = stored.find(u => u.email.toLowerCase() === form.email.toLowerCase())
+          // Hardcoded demo accounts get their known names
+          const hardcodedNames: Record<string, string> = {
+            'demo@trustnet.com':     'Amina Hassan',
+            'business@trustnet.com': 'Simba Tech Solutions',
+            'admin@trustnet.com':    'TrustNet Admin',
+          }
+          const session = {
+            email: form.email,
+            name:        found?.fullName ?? found?.name ?? hardcodedNames[form.email.toLowerCase()] ?? form.email.split('@')[0],
+            fullName:    found?.fullName ?? found?.name ?? hardcodedNames[form.email.toLowerCase()] ?? form.email.split('@')[0],
+            phone:       found?.phone ?? '',
+            country:     found?.country ?? '',
+            city:        found?.city ?? '',
+            profession:  found?.profession ?? '',
+            accountType: found?.accountType ?? 'individual',
+            role:        found?.role ?? 'individual',
+            businessName: found?.businessName ?? '',
+            industry:    found?.industry ?? '',
+            isHardcodedDemo: !found,
+          }
+          sessionStorage.setItem('tn_current_user', JSON.stringify(session))
+        } catch { /* ignore */ }
         router.push(demoRedirect)
         return
       }

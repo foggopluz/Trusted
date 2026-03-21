@@ -181,12 +181,20 @@ function IndividualRegisterForm() {
         return
       }
     } else {
-      // Demo mode — store in sessionStorage
+      // Demo mode — store full profile in sessionStorage
       if (form.email && form.password) {
         try {
-          const existing = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as { email: string; password: string; name: string }[]
+          const profile = {
+            email: form.email, password: form.password,
+            name: form.fullName, fullName: form.fullName,
+            phone: form.phone, country: form.country,
+            city: form.city, profession: form.profession,
+            accountType: form.accountType,
+            role: 'individual' as const,
+          }
+          const existing = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as typeof profile[]
           const updated = existing.filter(u => u.email !== form.email)
-          updated.push({ email: form.email, password: form.password, name: form.fullName })
+          updated.push(profile)
           sessionStorage.setItem('tn_demo_users', JSON.stringify(updated))
         } catch { /* ignore */ }
       }

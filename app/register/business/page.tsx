@@ -164,12 +164,22 @@ export default function BusinessRegisterPage() {
         return
       }
     } else {
-      // Demo mode
+      // Demo mode — store full profile in sessionStorage
       if (form.contactEmail && form.password) {
         try {
-          const existing = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as { email: string; password: string; name: string }[]
+          const profile = {
+            email: form.contactEmail, password: form.password,
+            name: form.contactName, fullName: form.contactName,
+            phone: form.contactPhone, country: form.country,
+            city: '', profession: 'Business Owner',
+            accountType: 'business' as const,
+            role: 'business' as const,
+            businessName: form.businessName,
+            industry: form.industry,
+          }
+          const existing = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as typeof profile[]
           const updated = existing.filter(u => u.email !== form.contactEmail)
-          updated.push({ email: form.contactEmail, password: form.password, name: form.contactName })
+          updated.push(profile)
           sessionStorage.setItem('tn_demo_users', JSON.stringify(updated))
         } catch { /* ignore */ }
       }

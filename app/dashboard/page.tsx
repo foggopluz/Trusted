@@ -16,6 +16,19 @@ import {
 // ─── Demo fallback user ───────────────────────────────────────────────────────
 const DEMO_USER_ID = 'u-1'
 
+interface DemoSessionUser {
+  email: string
+  name: string
+  fullName: string
+  phone?: string
+  country?: string
+  city?: string
+  profession?: string
+  accountType?: string
+  role?: string
+  isHardcodedDemo?: boolean
+}
+
 // ─── Credential display types ─────────────────────────────────────────────────
 
 interface DisplayCredential {
@@ -182,13 +195,29 @@ function toUnifiedScore(
 // ─── Dashboard Page ───────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [realProfile, setRealProfile] = useState<ProfileRow | null>(null)
-  const [realCreds, setRealCreds]     = useState<CredentialRow[] | null>(null)
-  const [realChecks, setRealChecks]   = useState<TrustCheckRow[] | null>(null)
-  const [authLoading, setAuthLoading] = useState(!IS_DEMO_MODE)
+  const [realProfile,     setRealProfile]     = useState<ProfileRow | null>(null)
+  const [realCreds,       setRealCreds]       = useState<CredentialRow[] | null>(null)
+  const [realChecks,      setRealChecks]      = useState<TrustCheckRow[] | null>(null)
+  const [demoSessionUser, setDemoSessionUser] = useState<DemoSessionUser | null>(null)
+  const [authLoading,     setAuthLoading]     = useState(true)
 
   useEffect(() => {
-    if (IS_DEMO_MODE) return
+    if (IS_DEMO_MODE) {
+      // Check if someone logged in during this session
+      try {
+        const raw = sessionStorage.getItem('tn_current_user')
+        if (raw) {
+          const cu = JSON.parse(raw) as DemoSessionUser
+          // Hardcoded demo accounts stay on the default u-1 data
+          if (!cu.isHardcodedDemo && cu.email !== 'demo@trustnet.com') {
+            setDemoSessionUser(cu)
+          }
+        }
+      } catch { /* ignore */ }
+      setAuthLoading(false)
+      return
+    }
+    // Real Supabase mode
     const client = createSupabaseBrowserClient()
     client.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { setAuthLoading(false); return }
@@ -205,25 +234,60 @@ export default function DashboardPage() {
   // ─── Determine display data ─────────────────────────────────────────────────
   const demoUser   = users.find(u => u.id === DEMO_USER_ID)!
   const isRealUser = !IS_DEMO_MODE && realProfile !== null
+  // A session-registered user who logged in during this browser session
+  const isSessionUser = IS_DEMO_MODE && demoSessionUser !== null
 
-  const displayName        = isRealUser ? realProfile!.full_name              : demoUser.fullName
-  const displayEmail       = isRealUser ? (realProfile!.email ?? '')          : (demoUser.email ?? '')
-  const displayPhone       = isRealUser ? (realProfile!.phone ?? '')          : demoUser.phone
-  const displayProfession  = isRealUser ? (realProfile!.profession ?? 'Member') : demoUser.profession
-  const displayCity        = isRealUser ? (realProfile!.city ?? '')           : demoUser.location
-  const displayCountry     = isRealUser ? (realProfile!.country ?? '')        : demoUser.country
+  const displayName        = isRealUser   ? realProfile!.full_name
+                           : isSessionUser ? demoSessionUser!.fullName
+                           : demoUser.fullName
+  const displayEmail       = isRealUser   ? (realProfile!.email ?? '')
+                           : isSessionUser ? (demoSessionUser!.email ?? '')
+                           : (demoUser.email ?? '')
+  const displayPhone       = isRealUser   ? (realProfile!.phone ?? '')
+                           : isSessionUser ? (demoSessionUser!.phone ?? '')
+                           : demoUser.phone
+  const displayProfession  = isRealUser   ? (realProfile!.profession ?? 'Member')
+                           : isSessionUser ? (demoSessionUser!.profession || 'Member')
+                           : demoUser.profession
+  const displayCity        = isRealUser   ? (realProfile!.city ?? '')
+                           : isSessionUser ? (demoSessionUser!.city ?? '')
+                           : demoUser.location
+  const displayCountry     = isRealUser   ? (realProfile!.country ?? '')
+                           : isSessionUser ? (demoSessionUser!.country ?? '')
+                           : demoUser.country
   const displayDid         = isRealUser
     ? (realProfile!.did ?? `did:trustnet:${realProfile!.id.slice(0, 16)}`)
-    : demoUser.did
-  const displayMemberSince = isRealUser ? (realProfile!.member_since ?? 'Recently') : demoUser.memberSince
-  const displayVerified    = isRealUser ? realProfile!.id_verification_status  : demoUser.idVerificationStatus
-  const displayBio         = isRealUser ? (realProfile!.bio ?? '')             : (demoUser.bio ?? '')
+    : isSessionUser
+      ? `did:trustnet:${demoSessionUser!.email.replace(/[@.]/g, '-').toLowerCase()}`
+      : demoUser.did
+  const displayMemberSince = isRealUser   ? (realProfile!.member_since ?? 'Recently')
+                           : isSessionUser ? 'Recently'
+                           : demoUser.memberSince
+  const displayVerified    = isRealUser   ? realProfile!.id_verification_status
+                           : isSessionUser ? 'pending'
+                           : demoUser.idVerificationStatus
+  const displayBio         = isRealUser   ? (realProfile!.bio ?? '')
+                           : isSessionUser ? ''
+                           : (demoUser.bio ?? '')
 
-  // Credentials
+  // Credentials — new session users start fresh (pending identity)
   const demoCreds = credentials.filter(c => c.subjectUserId === DEMO_USER_ID)
+  const sessionCreds: DisplayCredential[] = isSessionUser ? [{
+    id: 'pending-id',
+    credentialType: 'identity',
+    title: 'Identity Verification',
+    issuerLabel: 'TrustNet',
+    confidence: 0.3,
+    provenanceWeight: 0.98,
+    status: 'pending',
+    issuedAt: new Date().toISOString(),
+  }] : []
+
   const displayCreds: DisplayCredential[] = isRealUser
     ? (realCreds ?? []).map(supabaseCredToDisplay)
-    : demoCreds.map(storeCredToDisplay)
+    : isSessionUser
+      ? sessionCreds
+      : demoCreds.map(storeCredToDisplay)
 
   // Score
   const rawScore = isRealUser
@@ -236,7 +300,9 @@ export default function DashboardPage() {
         })),
         realProfile!.id_verification_status,
       )
-    : computeScore(demoCreds)
+    : isSessionUser
+      ? computeScoreFromSupabase([], 'pending')
+      : computeScore(demoCreds)
   const scoreResult = toUnifiedScore(rawScore)
 
   // Trust checks
@@ -248,14 +314,16 @@ export default function DashboardPage() {
         consentStatus: tc.consent_status,
         createdAt: tc.created_at,
       }))
-    : demoTrustChecks.map(tc => ({
-        id: tc.id,
-        requesterCompanyName: companies.find(c => c.id === tc.requesterCompanyId)?.businessName ?? 'Unknown',
-        consentStatus: tc.consentStatus,
-        createdAt: tc.createdAt,
-        scoreAtCheck: tc.scoreAtCheck,
-        riskTier: tc.riskTier,
-      }))
+    : isSessionUser
+      ? [] // new users have no checks yet
+      : demoTrustChecks.map(tc => ({
+          id: tc.id,
+          requesterCompanyName: companies.find(c => c.id === tc.requesterCompanyId)?.businessName ?? 'Unknown',
+          consentStatus: tc.consentStatus,
+          createdAt: tc.createdAt,
+          scoreAtCheck: tc.scoreAtCheck,
+          riskTier: tc.riskTier,
+        }))
 
   // ─── Local UI state ─────────────────────────────────────────────────────────
   const [tab, setTab]                     = useState<'wallet' | 'checks' | 'profile'>('wallet')
@@ -305,6 +373,7 @@ export default function DashboardPage() {
   }
 
   const profileUserId = isRealUser ? realProfile!.id : DEMO_USER_ID
+  const realUserId    = isRealUser ? realProfile!.id : undefined
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--surface)', paddingTop: 64 }}>
@@ -481,7 +550,7 @@ export default function DashboardPage() {
                   city={displayCity}
                   bio={displayBio}
                   isRealUser={isRealUser}
-                  userId={isRealUser ? realProfile!.id : undefined}
+                  userId={realUserId}
                 />
               )}
             </div>
