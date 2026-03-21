@@ -1,26 +1,205 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/* ─── Google Fonts loaded via <link> in layout.tsx ─────────────────────────── */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ── Brand Palette ── */
+  --dark:          #070E08;
+  --dark-2:        #0C1A0F;
+  --forest:        #0F3D27;
+  --forest-mid:    #1A5C38;
+  --forest-lt:     #286A44;
+  --forest-pale:   rgba(15,61,39,.08);
+
+  --gold:          #C8900C;
+  --gold-hover:    #B07A08;
+  --gold-lt:       #DBA820;
+  --gold-pale:     #FBF0D4;
+  --gold-border:   rgba(200,144,12,.25);
+
+  /* ── Neutrals ── */
+  --white:         #FFFFFF;
+  --surface:       #F9F7F3;
+  --surface-2:     #F2F0EB;
+  --border:        #E4E0D6;
+  --border-lt:     #EDEAD4;
+  --shadow:        rgba(10,20,12,.08);
+
+  /* ── Text ── */
+  --text:          #0C180E;
+  --text-mid:      #344438;
+  --text-muted:    #718472;
+  --text-faint:    #9BA89C;
+
+  /* ── Risk ── */
+  --risk-low:      #1A6B38;
+  --risk-low-bg:   #D4F0E0;
+  --risk-med:      #B07010;
+  --risk-med-bg:   #FEF0CC;
+  --risk-high:     #B83232;
+  --risk-high-bg:  #FDDADA;
+
+  /* ── Fonts ── */
+  --font-display:  'Cormorant Garamond', Georgia, serif;
+  --font-body:     'Inter', 'DM Sans', system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ─── Reset & Base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ─── Hero Background (Chaleto-inspired dark immersive) ──────────────────── */
+.hero-dark {
+  background:
+    radial-gradient(ellipse 80% 60% at 70% 40%, rgba(42,106,68,.18) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 15% 70%, rgba(200,144,12,.07) 0%, transparent 50%),
+    linear-gradient(160deg, #040B06 0%, #091509 35%, #0A1C0D 65%, #050C07 100%);
+  position: relative;
+}
+
+.hero-dark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+}
+
+/* ─── Dark Section (forest green, Chaleto-style) ─────────────────────────── */
+.section-dark {
+  background: var(--forest);
+  color: #fff;
+}
+
+.section-charcoal {
+  background: #0A1209;
+  color: #fff;
+}
+
+/* ─── Typography ─────────────────────────────────────────────────────────── */
+.display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; line-height: 1.08; }
+.display-italic { font-family: var(--font-display); font-style: italic; font-weight: 300; letter-spacing: -0.01em; line-height: 1.1; }
+
+/* ─── Card ───────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px var(--shadow), 0 4px 16px rgba(10,20,12,.05);
+}
+
+.card-sm { background: var(--white); border: 1px solid var(--border); border-radius: 8px; }
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font-body); font-size: 14px; font-weight: 600; letter-spacing: .01em;
+  padding: 13px 28px; border-radius: 6px; border: none; cursor: pointer;
+  transition: all .18s ease; text-decoration: none; white-space: nowrap;
+}
+
+.btn-gold          { background: var(--gold); color: #fff; border: 1px solid transparent; }
+.btn-gold:hover    { background: var(--gold-hover); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(200,144,12,.3); }
+
+.btn-outline-white          { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,.55); }
+.btn-outline-white:hover    { border-color: rgba(255,255,255,.9); background: rgba(255,255,255,.07); }
+
+.btn-outline-dark           { background: transparent; color: var(--text); border: 1.5px solid var(--border); }
+.btn-outline-dark:hover     { border-color: var(--text-mid); background: var(--surface-2); }
+
+.btn-forest        { background: var(--forest); color: #fff; border: 1px solid transparent; }
+.btn-forest:hover  { background: var(--forest-mid); transform: translateY(-1px); }
+
+.btn-danger        { background: var(--risk-high-bg); color: var(--risk-high); border: 1px solid transparent; }
+.btn-danger:hover  { filter: brightness(.95); }
+
+.btn-sm  { font-size: 13px; padding: 9px 18px; border-radius: 6px; }
+.btn-xs  { font-size: 12px; padding: 6px 14px;  border-radius: 5px; }
+
+/* ─── Badges ─────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+}
+.badge-low     { background: var(--risk-low-bg);  color: var(--risk-low); }
+.badge-medium  { background: var(--risk-med-bg);  color: var(--risk-med); }
+.badge-high    { background: var(--risk-high-bg); color: var(--risk-high); }
+.badge-gold    { background: var(--gold-pale);    color: var(--gold);      border: 1px solid var(--gold-border); }
+.badge-forest  { background: var(--forest-pale);  color: var(--forest-mid); }
+.badge-neutral { background: var(--surface-2);    color: var(--text-muted); }
+
+/* ─── Form Elements ──────────────────────────────────────────────────────── */
+.input {
+  width: 100%; padding: 11px 14px; font-family: var(--font-body);
+  font-size: 14px; color: var(--text); background: var(--white);
+  border: 1.5px solid var(--border); border-radius: 7px; outline: none; transition: border-color .15s;
+}
+.input:focus { border-color: var(--forest-lt); box-shadow: 0 0 0 3px rgba(15,61,39,.08); }
+.input::placeholder { color: var(--text-faint); }
+
+.label { display: block; font-size: 13px; font-weight: 500; color: var(--text-mid); margin-bottom: 6px; }
+
+.select {
+  width: 100%; padding: 11px 14px; font-family: var(--font-body);
+  font-size: 14px; color: var(--text); background: var(--white);
+  border: 1.5px solid var(--border); border-radius: 7px; outline: none; appearance: none; cursor: pointer; transition: border-color .15s;
+}
+.select:focus { border-color: var(--forest-lt); box-shadow: 0 0 0 3px rgba(15,61,39,.08); }
+
+/* ─── Tabs ───────────────────────────────────────────────────────────────── */
+.tab-bar { display: flex; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab-btn {
+  flex-shrink: 0; padding: 14px 22px; font-size: 13px; font-weight: 500;
+  border: none; background: transparent; cursor: pointer; color: var(--text-muted);
+  border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+  white-space: nowrap; margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--forest); border-bottom-color: var(--gold); font-weight: 600; }
+
+/* ─── Stat Numbers ───────────────────────────────────────────────────────── */
+.stat-num { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+
+/* ─── Progress bar ───────────────────────────────────────────────────────── */
+.progress-track { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.progress-fill  { height: 100%; border-radius: 99px; background: var(--forest-mid); transition: width .6s cubic-bezier(.4,0,.2,1); }
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+@keyframes fadeUp   { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeIn   { from { opacity:0; } to { opacity:1; } }
+@keyframes slideDown{ from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+
+.fade-up   { animation: fadeUp .55s cubic-bezier(.22,.68,0,1.2) both; }
+.fade-up-1 { animation-delay: .07s; }
+.fade-up-2 { animation-delay: .14s; }
+.fade-up-3 { animation-delay: .21s; }
+.fade-up-4 { animation-delay: .28s; }
+.fade-in   { animation: fadeIn  .4s ease both; }
+.slide-down{ animation: slideDown .3s ease both; }
+
+/* ─── Dividers ───────────────────────────────────────────────────────────── */
+.gold-line { height: 1px; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+
+/* ─── Glass ──────────────────────────────────────────────────────────────── */
+.glass-dark { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(12px); }
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Stars ──────────────────────────────────────────────────────────────── */
+.star-filled { color: var(--gold); }
+.star-empty  { color: var(--border); }
