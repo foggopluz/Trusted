@@ -69,7 +69,7 @@ export default function BusinessRegisterPage() {
                 <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: step > s.n ? 'var(--risk-low)' : step === s.n ? 'var(--gold)' : 'var(--surface-2)', color: step >= s.n ? '#fff' : 'var(--text-faint)', fontSize: 13, fontWeight: 600, transition: 'all .2s' }}>
                   {step > s.n ? <CheckCircle className="w-4 h-4" /> : s.n}
                 </div>
-                <span style={{ fontSize: 13, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? 'var(--text)' : 'var(--text-muted)', display: 'none' }} className="sm:inline">{s.label}</span>
+                <span style={{ fontSize: 13, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? 'var(--text)' : 'var(--text-muted)' }}>{s.label}</span>
               </div>
               {i < STEPS.length - 1 && (
                 <div style={{ flex: 1, height: 1, background: step > s.n ? 'var(--gold)' : 'var(--border)', margin: '0 8px', transition: 'background .2s' }} />

@@ -165,7 +165,7 @@ export default function ProfilePage() {
 
       {/* Main content */}
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 24px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', gap: 24, alignItems: 'start' }}>
 
           {/* Left */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

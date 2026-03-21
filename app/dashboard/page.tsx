@@ -63,6 +63,15 @@ export default function DashboardPage() {
 
   const [tab, setTab] = useState<'wallet' | 'checks' | 'profile'>('wallet')
   const [didCopied, setDidCopied] = useState(false)
+  const [trustCheckModal, setTrustCheckModal] = useState(false)
+  const [trustCheckSent, setTrustCheckSent] = useState(false)
+  const [trustCheckTarget, setTrustCheckTarget] = useState('')
+
+  function submitTrustCheck() {
+    if (!trustCheckTarget.trim()) return
+    setTrustCheckSent(true)
+    setTimeout(() => { setTrustCheckModal(false); setTrustCheckSent(false); setTrustCheckTarget('') }, 1800)
+  }
 
   function copyDid() {
     navigator.clipboard.writeText(user.did).catch(() => undefined)
@@ -151,7 +160,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Two-column layout */}
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 24, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 24, alignItems: 'start' }}>
 
           {/* Left sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -219,6 +228,7 @@ export default function DashboardPage() {
 
                 {/* Request Trust Check */}
                 <button
+                  onClick={() => setTrustCheckModal(true)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 12px', borderRadius: 8,
@@ -231,17 +241,19 @@ export default function DashboardPage() {
                 </button>
 
                 {/* Add Credential */}
-                <button
+                <Link
+                  href="/credentials"
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 12px', borderRadius: 8,
                     border: '1px solid var(--border)', background: 'var(--surface)',
-                    fontSize: 13, fontWeight: 500, color: 'var(--text-mid)', cursor: 'pointer',
+                    fontSize: 13, fontWeight: 500, color: 'var(--text-mid)',
+                    textDecoration: 'none',
                   }}
                 >
                   <PlusCircle style={{ width: 15, height: 15, color: '#7C4FC4' }} />
                   Add Credential
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -281,6 +293,57 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Request Trust Check Modal */}
+      {trustCheckModal && (
+        <div
+          onClick={() => { if (!trustCheckSent) setTrustCheckModal(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="card"
+            style={{ width: '100%', maxWidth: 440, padding: 32, borderRadius: 16 }}
+          >
+            {trustCheckSent ? (
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <CheckCircle style={{ width: 40, height: 40, color: 'var(--risk-low)', margin: '0 auto 14px' }} />
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 500, color: 'var(--text)', marginBottom: 8 }}>Request sent!</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>The business will be notified to request your consent before viewing your score.</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                  <Search style={{ width: 18, height: 18, color: 'var(--gold)' }} />
+                  <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 500, color: 'var(--text)', margin: 0 }}>Request Trust Check</h3>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.6 }}>
+                  Enter a business name or ID to initiate a trust check request. They'll receive a notification to view your score with your consent.
+                </p>
+                <div style={{ marginBottom: 20 }}>
+                  <label className="label">Business Name or ID</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Savanna Tech Ltd or biz-001"
+                    value={trustCheckTarget}
+                    onChange={e => setTrustCheckTarget(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && submitTrustCheck()}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="btn btn-gold" onClick={submitTrustCheck} disabled={!trustCheckTarget.trim()} style={{ flex: 1, opacity: trustCheckTarget.trim() ? 1 : 0.5 }}>
+                    Send Request
+                  </button>
+                  <button className="btn btn-outline-dark" onClick={() => setTrustCheckModal(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

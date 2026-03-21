@@ -82,7 +82,7 @@ export default function LandingPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#FFFFFF', fontFamily: 'var(--font-body)' }}>
       {/* ── NAV ──────────────────────────────────────────────────────────────── */}
-      <Nav />
+      <Nav transparent />
 
       {/* ── HERO ─────────────────────────────────────────────────────────────── */}
       <section
@@ -264,7 +264,6 @@ export default function LandingPage() {
 
         {/* Floating demo card preview */}
         <div
-          className="fade-up fade-up-4"
           style={{
             opacity: heroCardVisible ? 1 : 0,
             transform: heroCardVisible ? 'translateY(0)' : 'translateY(24px)',

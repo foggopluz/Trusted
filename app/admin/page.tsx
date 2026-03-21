@@ -123,6 +123,12 @@ export default function AdminPage() {
   // Scoring config
   const [weights, setWeights] = useState(defaultWeights)
   const [thresholds, setThresholds] = useState({ low: 700, medium: 450 })
+  const [configSaved, setConfigSaved] = useState(false)
+
+  function saveConfig() {
+    setConfigSaved(true)
+    setTimeout(() => setConfigSaved(false), 3000)
+  }
 
   // User management
   const [userSearch, setUserSearch] = useState('')
@@ -162,7 +168,7 @@ export default function AdminPage() {
         </div>
 
         {/* Stat cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 32 }}>
           {stats.map((s, i) => (
             <div key={s.label} className="card fade-up" style={{ padding: 20, animationDelay: `${i * 0.06}s` }}>
               <div style={{ width: 36, height: 36, borderRadius: 8, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
@@ -689,12 +695,21 @@ export default function AdminPage() {
                   ))}
                 </div>
 
-                <button
-                  disabled={totalW !== 100}
-                  style={{ padding: '11px 28px', borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 600, cursor: totalW === 100 ? 'pointer' : 'not-allowed', background: totalW === 100 ? 'var(--forest)' : 'var(--border)', color: totalW === 100 ? 'var(--gold-lt)' : 'var(--text-muted)', transition: 'background .2s' }}
-                >
-                  Save Configuration
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <button
+                    disabled={totalW !== 100}
+                    onClick={saveConfig}
+                    style={{ padding: '11px 28px', borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 600, cursor: totalW === 100 ? 'pointer' : 'not-allowed', background: totalW === 100 ? 'var(--forest)' : 'var(--border)', color: totalW === 100 ? 'var(--gold-lt)' : 'var(--text-muted)', transition: 'background .2s' }}
+                  >
+                    Save Configuration
+                  </button>
+                  {configSaved && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--risk-low)', fontWeight: 500 }}>
+                      <CheckCircle style={{ width: 15, height: 15 }} />
+                      Configuration saved
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>

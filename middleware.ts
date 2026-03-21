@@ -4,17 +4,23 @@ import { createClient } from '@supabase/supabase-js'
 
 const PROTECTED_PATHS = ['/dashboard', '/business/dashboard', '/profile/edit']
 
-export async function proxy(request: NextRequest) {
+const IS_DEMO_MODE =
+  !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co'
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   const isProtected = PROTECTED_PATHS.some(p => pathname.startsWith(p))
   if (!isProtected) return NextResponse.next()
 
-  // Read the Supabase session cookie
-  const accessToken = request.cookies.get('sb-access-token')?.value
+  // Demo mode: no real Supabase configured — allow all routes through
+  // so the in-memory demo data is fully accessible without credentials.
+  if (IS_DEMO_MODE) return NextResponse.next()
+
+  const accessToken  = request.cookies.get('sb-access-token')?.value
   const refreshToken = request.cookies.get('sb-refresh-token')?.value
 
-  // If no tokens present, redirect to login
   if (!accessToken && !refreshToken) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('next', pathname)
@@ -30,7 +36,6 @@ export async function proxy(request: NextRequest) {
     const { data: { user }, error } = await supabase.auth.getUser(accessToken)
 
     if (error || !user) {
-      // Try refreshing the session if we have a refresh token
       if (refreshToken) {
         const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken })
         if (refreshError || !data.session) {
@@ -38,7 +43,6 @@ export async function proxy(request: NextRequest) {
           loginUrl.searchParams.set('next', pathname)
           return NextResponse.redirect(loginUrl)
         }
-        // Session refreshed — allow through
         return NextResponse.next()
       }
       const loginUrl = new URL('/login', request.url)
@@ -46,7 +50,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl)
     }
   } catch {
-    // On any error allow through — client-side will handle the guard
+    // On error allow through — client-side will handle the guard
     return NextResponse.next()
   }
 

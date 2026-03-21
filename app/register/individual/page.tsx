@@ -28,8 +28,35 @@ function IndividualRegisterForm() {
     idNumber: '', password: '', confirmPassword: '',
   })
   const [submitted, setSubmitted] = useState(false)
+  const [errors, setErrors] = useState<string[]>([])
 
   const update = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  function validateStep(s: Step): string[] {
+    if (s === 1) {
+      const errs: string[] = []
+      if (!form.fullName.trim())  errs.push('Full name is required.')
+      if (!form.phone.trim() && !form.email.trim()) errs.push('Phone or email is required.')
+      if (!form.city.trim())      errs.push('City is required.')
+      if (!form.profession.trim()) errs.push('Profession is required.')
+      return errs
+    }
+    if (s === 3) {
+      const errs: string[] = []
+      if (!form.idNumber.trim())    errs.push('ID number is required.')
+      if (!form.password.trim())    errs.push('Password is required.')
+      if (form.password !== form.confirmPassword) errs.push('Passwords do not match.')
+      return errs
+    }
+    return []
+  }
+
+  function handleContinue() {
+    const errs = validateStep(step)
+    if (errs.length > 0) { setErrors(errs); return }
+    setErrors([])
+    setStep(s => (s + 1) as Step)
+  }
   const methods = COUNTRY_VERIFICATION_METHODS[form.country] || COUNTRY_VERIFICATION_METHODS['Other']
 
   if (submitted) {
@@ -79,7 +106,7 @@ function IndividualRegisterForm() {
                 }}>
                   {step > s.n ? <CheckCircle className="w-4 h-4" /> : s.n}
                 </div>
-                <span style={{ fontSize: 13, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? 'var(--text)' : 'var(--text-muted)', display: 'none' }} className="sm:inline">{s.label}</span>
+                <span style={{ fontSize: 13, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? 'var(--text)' : 'var(--text-muted)' }}>{s.label}</span>
               </div>
               {i < STEPS.length - 1 && (
                 <div style={{ flex: 1, height: 1, background: step > s.n ? 'var(--forest-lt)' : 'var(--border)', margin: '0 8px', transition: 'background .2s' }} />
@@ -230,14 +257,23 @@ function IndividualRegisterForm() {
             </div>
           )}
 
+          {/* Validation errors */}
+          {errors.length > 0 && (
+            <ul style={{ margin: '16px 0 0', padding: '12px 16px', background: 'var(--risk-high-bg)', border: '1px solid var(--risk-high)', borderRadius: 8, listStyle: 'disc', paddingLeft: 32 }}>
+              {errors.map((e, i) => (
+                <li key={i} style={{ fontSize: 13, color: 'var(--risk-high)', lineHeight: 1.6 }}>{e}</li>
+              ))}
+            </ul>
+          )}
+
           {/* Nav buttons */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
             {step > 1
-              ? <button className="btn btn-outline-dark" onClick={() => setStep(s => (s - 1) as Step)}>← Back</button>
+              ? <button className="btn btn-outline-dark" onClick={() => { setErrors([]); setStep(s => (s - 1) as Step) }}>← Back</button>
               : <Link href="/register" className="btn btn-outline-dark">← Choose type</Link>
             }
             {step < 4
-              ? <button className="btn btn-forest" onClick={() => setStep(s => (s + 1) as Step)}>Continue <ChevronRight className="w-4 h-4" /></button>
+              ? <button className="btn btn-forest" onClick={handleContinue}>Continue <ChevronRight className="w-4 h-4" /></button>
               : <button className="btn btn-gold" onClick={() => setSubmitted(true)}>Submit Registration →</button>
             }
           </div>

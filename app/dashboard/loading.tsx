@@ -13,7 +13,7 @@ export default function DashboardLoading() {
       </div>
 
       {/* Body skeleton */}
-      <div style={{ maxWidth: 1280, margin: '32px auto', padding: '0 24px', display: 'grid', gridTemplateColumns: '320px 1fr', gap: 24 }}>
+      <div style={{ maxWidth: 1280, margin: '32px auto', padding: '0 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 24 }}>
         {/* Sidebar */}
         <div className="card" style={{ padding: 24, height: 420 }}>
           <div className="skeleton" style={{ width: 120, height: 120, borderRadius: '50%', margin: '0 auto 24px' }} />
