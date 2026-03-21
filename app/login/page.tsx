@@ -2,8 +2,34 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Shield, Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { Shield, Eye, EyeOff, ArrowRight, Info } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+
+// Demo credentials — always work without Supabase
+const DEMO_CREDENTIALS = [
+  { email: 'demo@trustnet.com',    password: 'demo1234', redirect: '/dashboard' },
+  { email: 'business@trustnet.com', password: 'demo1234', redirect: '/business/dashboard' },
+  { email: 'admin@trustnet.com',   password: 'admin1234', redirect: '/admin' },
+]
+
+function checkDemoLogin(email: string, password: string): string | null {
+  // Check hard-coded demo credentials
+  const match = DEMO_CREDENTIALS.find(
+    d => d.email.toLowerCase() === email.toLowerCase() && d.password === password
+  )
+  if (match) return match.redirect
+
+  // Check users registered this session (stored by registration flow)
+  try {
+    const stored = JSON.parse(sessionStorage.getItem('tn_demo_users') || '[]') as { email: string; password: string }[]
+    const sessionMatch = stored.find(
+      u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+    )
+    if (sessionMatch) return '/dashboard'
+  } catch { /* ignore */ }
+
+  return null
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,20 +43,39 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
+      // 1. Check demo / session-registered credentials first (always works)
+      const demoRedirect = checkDemoLogin(form.email, form.password)
+      if (demoRedirect) {
+        router.push(demoRedirect)
+        return
+      }
+
+      // 2. Try real Supabase auth
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: form.email,
         password: form.password,
       })
       if (authError) {
-        setError(authError.message)
+        // If Supabase is not configured (demo mode), show a helpful error
+        const isNetworkError = authError.message.includes('fetch') || authError.message.includes('network') || authError.message.includes('Failed')
+        if (isNetworkError) {
+          setError('No account found with those credentials. If you just registered, use the email and password you chose during registration.')
+        } else {
+          setError(authError.message)
+        }
       } else {
         router.push('/dashboard')
       }
     } catch {
-      setError('An unexpected error occurred. Please try again.')
+      setError('No account found with those credentials. If you just registered, use the email and password you chose during sign-up.')
     } finally {
       setLoading(false)
     }
+  }
+
+  function fillDemo(email: string, password: string) {
+    setForm({ email, password })
+    setError('')
   }
 
   return (
@@ -78,10 +123,18 @@ export default function LoginPage() {
           </Link>
 
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Log In</h1>
-          <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 36 }}>
-            Don't have an account?{' '}
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 28 }}>
+            Don&apos;t have an account?{' '}
             <Link href="/register" style={{ color: 'var(--forest-mid)', fontWeight: 600, textDecoration: 'none' }}>Create an account →</Link>
           </p>
+
+          {/* Demo mode notice */}
+          <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, background: 'var(--gold-pale)', border: '1px solid var(--gold-border)', marginBottom: 24, fontSize: 13 }}>
+            <Info style={{ width: 15, height: 15, color: 'var(--gold)', flexShrink: 0, marginTop: 1 }} />
+            <span style={{ color: 'var(--text-mid)', lineHeight: 1.5 }}>
+              <strong>Demo mode:</strong> Use <code style={{ background: 'rgba(0,0,0,.06)', padding: '1px 5px', borderRadius: 4 }}>demo@trustnet.com</code> / <code style={{ background: 'rgba(0,0,0,.06)', padding: '1px 5px', borderRadius: 4 }}>demo1234</code>, or use the email &amp; password you created during registration.
+            </span>
+          </div>
 
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: 20 }}>
@@ -124,12 +177,12 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p style={{ fontSize: 13, color: 'var(--risk-high)', marginBottom: 16, padding: '10px 14px', background: 'var(--risk-high-bg)', borderRadius: 8 }}>
+              <p style={{ fontSize: 13, color: 'var(--risk-high)', marginBottom: 16, padding: '10px 14px', background: 'var(--risk-high-bg)', borderRadius: 8, lineHeight: 1.5 }}>
                 {error}
               </p>
             )}
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)', marginBottom: 28, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, cursor: 'pointer' }}>
               <input type="checkbox" style={{ accentColor: 'var(--forest)' }} />
               Remember me for 30 days
             </label>
@@ -146,24 +199,26 @@ export default function LoginPage() {
           </form>
 
           {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '24px 0' }}>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>OR</span>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>OR JUMP STRAIGHT IN</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
           {/* Quick access */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Quick demo access</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Quick demo access — no login required</p>
             {[
-              { href: '/dashboard', label: 'Individual Dashboard', sub: 'Amina Hassan · UX Designer' },
-              { href: '/business/dashboard', label: 'Business Portal', sub: 'Simba Tech Solutions' },
-              { href: '/admin', label: 'Admin Panel', sub: 'Platform management' },
+              { href: '/dashboard',          label: 'Individual Dashboard', sub: 'Amina Hassan · UX Designer',        onClick: () => fillDemo('demo@trustnet.com', 'demo1234') },
+              { href: '/business/dashboard', label: 'Business Portal',      sub: 'Simba Tech Solutions',              onClick: undefined },
+              { href: '/admin',              label: 'Admin Panel',          sub: 'Platform management',               onClick: undefined },
             ].map(item => (
               <Link
                 key={item.href}
                 href={item.href}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)', textDecoration: 'none', transition: 'border-color .15s' }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)', textDecoration: 'none', transition: 'border-color .15s, background .15s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--forest-lt)'; e.currentTarget.style.background = 'var(--forest-pale)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'transparent' }}
               >
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>{item.label}</div>
