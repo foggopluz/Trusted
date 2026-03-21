@@ -160,6 +160,7 @@ export const credentials: Credential[] = [
 // ─── Trust Checks ─────────────────────────────────────────────────────────────
 export const trustChecks: TrustCheck[] = [
   { id: 'tc-1', requesterCompanyId: 'co-1', subjectUserId: 'u-1', consentStatus: 'granted', scoreAtCheck: 842, riskTier: 'low',    credentialsShared: ['cr-1','cr-2','cr-3'], createdAt: '2025-11-20' },
+  { id: 'tc-5', requesterCompanyId: 'co-2', subjectUserId: 'u-1', consentStatus: 'pending',                                        credentialsShared: [],                      createdAt: '2026-03-18' },
   { id: 'tc-2', requesterCompanyId: 'co-1', subjectUserId: 'u-2', consentStatus: 'granted', scoreAtCheck: 671, riskTier: 'medium', credentialsShared: ['cr-7','cr-8'],        createdAt: '2025-11-18' },
   { id: 'tc-3', requesterCompanyId: 'co-1', subjectUserId: 'u-5', consentStatus: 'pending',                                       credentialsShared: [],                      createdAt: '2025-12-01' },
   { id: 'tc-4', requesterCompanyId: 'co-3', subjectUserId: 'u-6', consentStatus: 'granted', scoreAtCheck: 720, riskTier: 'low',    credentialsShared: ['cr-17','cr-18','cr-19'], createdAt: '2025-10-10' },
