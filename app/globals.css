@@ -104,13 +104,14 @@ body {
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  font-family: var(--font-body); font-size: 14px; font-weight: 600; letter-spacing: .01em;
+  font-family: var(--font-body); font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
   padding: 13px 28px; border-radius: 6px; border: none; cursor: pointer;
-  transition: all .18s ease; text-decoration: none; white-space: nowrap;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1); text-decoration: none; white-space: nowrap;
 }
 
 .btn-gold          { background: var(--gold); color: #fff; border: 1px solid transparent; }
-.btn-gold:hover    { background: var(--gold-hover); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(200,144,12,.3); }
+.btn-gold:hover    { background: var(--gold-hover); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(200,144,12,.3); filter: brightness(1.08) saturate(1.1); }
+.btn-gold:active   { transform: scale(0.97); }
 
 .btn-outline-white          { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,.55); }
 .btn-outline-white:hover    { border-color: rgba(255,255,255,.9); background: rgba(255,255,255,.07); }
@@ -119,13 +120,16 @@ body {
 .btn-outline-dark:hover     { border-color: var(--text-mid); background: var(--surface-2); }
 
 .btn-forest        { background: var(--forest); color: #fff; border: 1px solid transparent; }
-.btn-forest:hover  { background: var(--forest-mid); transform: translateY(-1px); }
+.btn-forest:hover  { background: var(--forest-mid); transform: translateY(-1px); filter: brightness(1.08) saturate(1.1); }
+.btn-forest:active { transform: scale(0.97); }
 
 .btn-danger        { background: var(--risk-high-bg); color: var(--risk-high); border: 1px solid transparent; }
 .btn-danger:hover  { filter: brightness(.95); }
 
 .btn-sm  { font-size: 13px; padding: 9px 18px; border-radius: 6px; }
 .btn-xs  { font-size: 12px; padding: 6px 14px;  border-radius: 5px; }
+.btn-lg  { padding: 16px 36px; font-size: 17px; border-radius: 14px; }
+.btn-pill{ border-radius: 100px; }
 
 /* ─── Badges ─────────────────────────────────────────────────────────────── */
 .badge {

@@ -1,11 +1,37 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Shield, Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
+  const router = useRouter()
   const [showPw, setShowPw] = useState(false)
   const [form, setForm] = useState({ email: '', password: '' })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
+      })
+      if (authError) {
+        setError(authError.message)
+      } else {
+        router.push('/dashboard')
+      }
+    } catch {
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex' }}>
@@ -54,17 +80,20 @@ export default function LoginPage() {
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Log In</h1>
           <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 36 }}>
             Don't have an account?{' '}
-            <Link href="/register" style={{ color: 'var(--forest-mid)', fontWeight: 600, textDecoration: 'none' }}>Register free →</Link>
+            <Link href="/register" style={{ color: 'var(--forest-mid)', fontWeight: 600, textDecoration: 'none' }}>Create an account →</Link>
           </p>
 
-          <form onSubmit={e => { e.preventDefault(); window.location.href = '/dashboard' }}>
+          <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: 20 }}>
-              <label className="label">Email or Phone</label>
+              <label className="label">Email</label>
               <input
-                type="text" className="input"
-                placeholder="amina@email.com or +255712…"
+                type="email"
+                className="input"
+                placeholder="you@email.com"
                 value={form.email}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                required
+                autoComplete="email"
               />
             </div>
 
@@ -75,27 +104,44 @@ export default function LoginPage() {
               </div>
               <div style={{ position: 'relative' }}>
                 <input
-                  type={showPw ? 'text' : 'password'} className="input"
+                  type={showPw ? 'text' : 'password'}
+                  className="input"
                   placeholder="••••••••"
                   value={form.password}
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                   style={{ paddingRight: 44 }}
+                  required
+                  autoComplete="current-password"
                 />
-                <button type="button" onClick={() => setShowPw(v => !v)}
-                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPw(v => !v)}
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                >
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
+
+            {error && (
+              <p style={{ fontSize: 13, color: 'var(--risk-high)', marginBottom: 16, padding: '10px 14px', background: 'var(--risk-high-bg)', borderRadius: 8 }}>
+                {error}
+              </p>
+            )}
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)', marginBottom: 28, cursor: 'pointer' }}>
               <input type="checkbox" style={{ accentColor: 'var(--forest)' }} />
               Remember me for 30 days
             </label>
 
-            <button type="submit" className="btn btn-forest" style={{ width: '100%', justifyContent: 'center', fontSize: 15 }}>
-              Log In
-              <ArrowRight className="w-4 h-4" />
+            <button
+              type="submit"
+              className="btn btn-gold"
+              disabled={loading}
+              style={{ width: '100%', justifyContent: 'center', fontSize: 15, opacity: loading ? 0.7 : 1 }}
+            >
+              {loading ? 'Logging in…' : 'Log In'}
+              {!loading && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
 
@@ -114,7 +160,11 @@ export default function LoginPage() {
               { href: '/business/dashboard', label: 'Business Portal', sub: 'Simba Tech Solutions' },
               { href: '/admin', label: 'Admin Panel', sub: 'Platform management' },
             ].map(item => (
-              <Link key={item.href} href={item.href} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)', textDecoration: 'none', transition: 'border-color .15s' }}>
+              <Link
+                key={item.href}
+                href={item.href}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)', textDecoration: 'none', transition: 'border-color .15s' }}
+              >
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>{item.label}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{item.sub}</div>

@@ -1,6 +1,30 @@
 import { Credential, FinancialInstitution, ScoreResult, RiskTier, ConfidenceLevel } from './types'
 import { financialInstitutions } from './store'
 
+// ─── Supabase credential types ────────────────────────────────────────────────
+
+export interface SupabaseCredential {
+  id: string
+  type: 'employment' | 'payment' | 'endorsement' | 'identity' | 'skill'
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  rating?: number
+}
+
+export interface SupabaseScoreResult {
+  score: number
+  riskLevel: 'High Risk' | 'Medium Risk' | 'Low Risk'
+  riskTier: 'high' | 'medium' | 'low'
+  breakdown: {
+    employment: number
+    payments: number
+    endorsements: number
+    identity: number
+  }
+  confidence: 'low' | 'medium' | 'high'
+  credentialCount: number
+}
+
 const FACTOR_WEIGHTS = {
   identity: 0.15,
   financial: 0.25,
@@ -120,4 +144,88 @@ export function getScoreLabel(score: number): { label: string; riskLevel: RiskTi
   if (score >= 450) return { label: 'Moderate',     riskLevel: 'medium' }
   if (score >= 250) return { label: 'Poor',         riskLevel: 'high' }
   return               { label: 'Very Poor',     riskLevel: 'high' }
+}
+
+// ─── Supabase-based scoring ───────────────────────────────────────────────────
+
+function supabaseRecencyMultiplier(createdAt: string): number {
+  const ageMonths = monthsAgo(createdAt)
+  if (ageMonths <= 6) return 1.5
+  if (ageMonths <= 12) return 1.2
+  return 1.0
+}
+
+export function computeScoreFromSupabase(
+  credentials: SupabaseCredential[],
+  verificationStatus: string,
+): SupabaseScoreResult {
+  const approved = credentials.filter(c => c.status === 'approved')
+
+  // Employment (work_history mapped to employment)
+  const employmentCreds = approved.filter(c => c.type === 'employment')
+  let employmentRaw = 0
+  for (const cred of employmentCreds) {
+    employmentRaw += 40 * supabaseRecencyMultiplier(cred.created_at)
+  }
+  const employmentScore = Math.min(Math.round(employmentRaw), 400)
+
+  // Payments
+  const paymentCreds = approved.filter(c => c.type === 'payment')
+  let paymentRaw = 0
+  for (const cred of paymentCreds) {
+    paymentRaw += 35 * supabaseRecencyMultiplier(cred.created_at)
+  }
+  const paymentScore = Math.min(Math.round(paymentRaw), 350)
+
+  // Endorsements
+  const endorsementCreds = approved.filter(c => c.type === 'endorsement')
+  let endorsementRaw = 0
+  for (const cred of endorsementCreds) {
+    const ratingMultiplier = cred.rating != null ? cred.rating / 5 : 1.0
+    endorsementRaw += 15 * ratingMultiplier
+  }
+  const endorsementScore = Math.min(Math.round(endorsementRaw), 150)
+
+  // Identity
+  let identityScore: number
+  if (verificationStatus === 'verified') identityScore = 100
+  else if (verificationStatus === 'pending') identityScore = 30
+  else identityScore = 0
+
+  const rawScore = employmentScore + paymentScore + endorsementScore + identityScore
+  const score = Math.min(Math.round(rawScore), 1000)
+
+  // Risk tier and level
+  let riskTier: 'high' | 'medium' | 'low'
+  let riskLevel: 'High Risk' | 'Medium Risk' | 'Low Risk'
+  if (score >= 701) {
+    riskTier = 'low'
+    riskLevel = 'Low Risk'
+  } else if (score >= 401) {
+    riskTier = 'medium'
+    riskLevel = 'Medium Risk'
+  } else {
+    riskTier = 'high'
+    riskLevel = 'High Risk'
+  }
+
+  // Confidence based on total approved credential count
+  let confidence: 'low' | 'medium' | 'high'
+  if (approved.length >= 5) confidence = 'high'
+  else if (approved.length >= 2) confidence = 'medium'
+  else confidence = 'low'
+
+  return {
+    score,
+    riskLevel,
+    riskTier,
+    breakdown: {
+      employment: employmentScore,
+      payments: paymentScore,
+      endorsements: endorsementScore,
+      identity: identityScore,
+    },
+    confidence,
+    credentialCount: approved.length,
+  }
 }
