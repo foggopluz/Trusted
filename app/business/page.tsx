@@ -1,7 +1,7 @@
 'use client'
 import { useState } from "react"
-import Nav from "@/app/components/Nav"
-import ScoreRing from "@/app/components/ScoreRing"
+import Nav from "@/components/Nav"
+import ScoreRing from "@/components/ScoreRing"
 import { users, companies, credentials, trustChecks, financialInstitutions } from "@/lib/store"
 import { computeScore } from "@/lib/scoring"
 import { INSTITUTION_LABELS, FinancialInstitutionType } from "@/lib/types"

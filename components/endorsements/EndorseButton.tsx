@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import StarRating from '@/app/components/StarRating'
+import StarRating from '@/components/StarRating'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface EndorseButtonProps {

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Nav from '@/app/components/Nav'
+import Nav from '@/components/Nav'
 import { IS_DEMO_MODE, createSupabaseBrowserClient } from '@/lib/supabase'
 import { users } from '@/lib/store'
 import { CheckCircle, Loader2, User } from 'lucide-react'

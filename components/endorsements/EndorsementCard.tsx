@@ -1,4 +1,4 @@
-import { RatingDisplay } from '@/app/components/StarRating'
+import { RatingDisplay } from '@/components/StarRating'
 
 export interface EndorsementData {
   id?: string

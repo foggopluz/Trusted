@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle, MapPin, Loader2 } from 'lucide-react'
-import { RatingDisplay } from '@/app/components/StarRating'
+import { RatingDisplay } from '@/components/StarRating'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

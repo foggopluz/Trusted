@@ -1,11 +1,11 @@
 'use client'
 import { useState } from 'react'
-import Nav from '@/app/components/Nav'
-import AddCredentialForm from '@/app/components/credentials/AddCredentialForm'
-import RequestCredentialForm from '@/app/components/credentials/RequestCredentialForm'
-import CredentialCard from '@/app/components/credentials/CredentialCard'
+import Nav from '@/components/Nav'
+import AddCredentialForm from '@/components/credentials/AddCredentialForm'
+import RequestCredentialForm from '@/components/credentials/RequestCredentialForm'
+import CredentialCard from '@/components/credentials/CredentialCard'
 import { credentials as demoCredentials, users, financialInstitutions } from '@/lib/store'
-import type { CredentialRow } from '@/app/components/credentials/CredentialCard'
+import type { CredentialRow } from '@/components/credentials/CredentialCard'
 import { PlusCircle, Send, Award } from 'lucide-react'
 
 const demoUser = users.find(u => u.id === 'u-1')!

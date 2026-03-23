@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
-import Nav from '@/app/components/Nav'
-import ScoreRing from '@/app/components/ScoreRing'
-import StarRating, { RatingDisplay } from '@/app/components/StarRating'
+import Nav from '@/components/Nav'
+import ScoreRing from '@/components/ScoreRing'
+import StarRating, { RatingDisplay } from '@/components/StarRating'
 import { companies, ratings } from '@/lib/store'
 import { Building2, CheckCircle, Star, Globe, MapPin, Phone, Mail, Calendar } from 'lucide-react'
 

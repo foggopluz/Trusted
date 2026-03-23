@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import Nav from '@/app/components/Nav'
+import Nav from '@/components/Nav'
 
 export default function PrivacyPage() {
   return (

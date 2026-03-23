@@ -1,10 +1,10 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import Nav from '@/app/components/Nav'
-import StepCard from '@/app/components/landing/StepCard'
-import DemoCard from '@/app/components/landing/DemoCard'
-import StatItem from '@/app/components/landing/StatItem'
+import Nav from '@/components/Nav'
+import StepCard from '@/components/landing/StepCard'
+import DemoCard from '@/components/landing/DemoCard'
+import StatItem from '@/components/landing/StatItem'
 import { Shield, UserPlus, Share2 } from 'lucide-react'
 
 /* ─── Data ──────────────────────────────────────────────────────────────────── */
