@@ -719,6 +719,17 @@ function WalletTab({ creds }: { creds: DisplayCredential[] }) {
 function ChecksTab({ checks }: { checks: DisplayTrustCheck[] }) {
   const [decisions, setDecisions] = useState<Partial<Record<string, 'granted' | 'denied'>>>({})
 
+  async function handleConsent(checkId: string, action: 'granted' | 'denied') {
+    setDecisions(x => ({ ...x, [checkId]: action }))
+    try {
+      await fetch('/api/trust-checks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: checkId, status: action }),
+      })
+    } catch { /* optimistic update already applied */ }
+  }
+
   return (
     <div>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
@@ -754,13 +765,13 @@ function ChecksTab({ checks }: { checks: DisplayTrustCheck[] }) {
                   {status === 'pending' ? (
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
-                        onClick={() => setDecisions(x => ({ ...x, [check.id]: 'denied' }))}
+                        onClick={() => handleConsent(check.id, 'denied')}
                         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: 'var(--risk-high-bg)', color: 'var(--risk-high)', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}
                       >
                         <XCircle style={{ width: 13, height: 13 }} /> Deny
                       </button>
                       <button
-                        onClick={() => setDecisions(x => ({ ...x, [check.id]: 'granted' }))}
+                        onClick={() => handleConsent(check.id, 'granted')}
                         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: 'var(--risk-low-bg)', color: 'var(--risk-low)', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}
                       >
                         <CheckCircle style={{ width: 13, height: 13 }} /> Grant

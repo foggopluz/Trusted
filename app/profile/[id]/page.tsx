@@ -96,8 +96,21 @@ export default function ProfilePage() {
     { label: 'Network',      value: score.breakdown.networkTrust,        max: 200,  color: '#C07A0A' },
   ]
 
-  function submitRating() {
+  async function submitRating() {
     if (starVal === 0) return
+    try {
+      await fetch('/api/ratings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetId:   id,
+          targetType: 'user',
+          stars:      starVal,
+          comment:    comment || undefined,
+          raterName:  'Guest',
+        }),
+      })
+    } catch { /* ignore — show success regardless */ }
     setSubmitted(true)
   }
 

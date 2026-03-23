@@ -130,6 +130,40 @@ export default function AdminPage() {
     setTimeout(() => setConfigSaved(false), 3000)
   }
 
+  // Admin action helpers
+  async function handleVerificationApprove(id: string, idx: number) {
+    setQueue(q => q.map((x, i) => i === idx ? { ...x, decision: 'approved' as const, showNoteInput: false } : x))
+    try {
+      await fetch('/api/admin/verifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'approved' }),
+      })
+    } catch { /* optimistic update already applied */ }
+  }
+
+  async function handleVerificationReject(id: string, note: string, idx: number) {
+    setQueue(q => q.map((x, i) => i === idx ? { ...x, decision: 'rejected' as const, showNoteInput: false } : x))
+    try {
+      await fetch('/api/admin/verifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'rejected', note }),
+      })
+    } catch { /* optimistic update already applied */ }
+  }
+
+  async function handleChangeDecision(id: string, action: 'approved' | 'rejected') {
+    setChangeDecisions(x => ({ ...x, [id]: action }))
+    try {
+      await fetch('/api/admin/changes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      })
+    } catch { /* optimistic update already applied */ }
+  }
+
   // User management
   const [userSearch, setUserSearch] = useState('')
   const [suspended, setSuspended] = useState<Set<string>>(new Set())
@@ -244,7 +278,7 @@ export default function AdminPage() {
                             <XCircle style={{ width: 13, height: 13 }} /> Reject with Note
                           </button>
                           <button
-                            onClick={() => setQueue(q => q.map((x, i) => i === idx ? { ...x, decision: 'approved', showNoteInput: false } : x))}
+                            onClick={() => handleVerificationApprove(v.id, idx)}
                             style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: 'var(--risk-low-bg)', color: 'var(--risk-low)', border: 'none', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                           >
                             <CheckCircle style={{ width: 13, height: 13 }} /> Approve
@@ -269,7 +303,7 @@ export default function AdminPage() {
                           />
                           <button
                             disabled={!v.note.trim()}
-                            onClick={() => setQueue(q => q.map((x, i) => i === idx ? { ...x, decision: 'rejected', showNoteInput: false } : x))}
+                            onClick={() => handleVerificationReject(v.id, v.note, idx)}
                             style={{ fontSize: 12, fontWeight: 600, background: v.note.trim() ? 'var(--risk-high)' : 'var(--border)', color: v.note.trim() ? '#fff' : 'var(--text-muted)', border: 'none', borderRadius: 7, padding: '7px 16px', cursor: v.note.trim() ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
                           >
                             Confirm Reject
@@ -357,13 +391,13 @@ export default function AdminPage() {
                           {isPending ? (
                             <div style={{ display: 'flex', gap: 8 }}>
                               <button
-                                onClick={() => setChangeDecisions(x => ({ ...x, [cr.id]: 'rejected' }))}
+                                onClick={() => handleChangeDecision(cr.id, 'rejected')}
                                 style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: 'var(--risk-high-bg)', color: 'var(--risk-high)', border: 'none', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                               >
                                 <XCircle style={{ width: 13, height: 13 }} /> Reject
                               </button>
                               <button
-                                onClick={() => setChangeDecisions(x => ({ ...x, [cr.id]: 'approved' }))}
+                                onClick={() => handleChangeDecision(cr.id, 'approved')}
                                 style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: 'var(--risk-low-bg)', color: 'var(--risk-low)', border: 'none', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                               >
                                 <CheckCircle style={{ width: 13, height: 13 }} /> Approve

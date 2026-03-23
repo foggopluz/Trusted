@@ -93,7 +93,8 @@ export default function BusinessDashboardPage() {
   const [minScore, setMinScore] = useState(0)
   const [countryFilter, setCountryFilter] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [requested, setRequested] = useState<string[]>([])
+  const [requested,  setRequested]  = useState<string[]>([])
+  const [issued,     setIssued]     = useState<string[]>([])
   const [toast, setToast] = useState(false)
 
   // Profile edit state
@@ -112,10 +113,11 @@ export default function BusinessDashboardPage() {
   )
 
   // Trust checks — real or demo
-  interface DisplayCheck { id: string; subjectName: string; subjectInitials: string; consentStatus: string; createdAt: string; scoreAtCheck?: number; riskTier?: string }
+  interface DisplayCheck { id: string; subjectId: string; subjectName: string; subjectInitials: string; consentStatus: string; createdAt: string; scoreAtCheck?: number; riskTier?: string }
   const checks: DisplayCheck[] = isRealUser
     ? (realChecks ?? []).map(tc => ({
         id: tc.id,
+        subjectId: tc.subject_id ?? tc.id,
         subjectName: 'Verified User',
         subjectInitials: 'VU',
         consentStatus: tc.consent_status,
@@ -125,6 +127,7 @@ export default function BusinessDashboardPage() {
         const subject = users.find(u => u.id === tc.subjectUserId)
         return {
           id: tc.id,
+          subjectId: tc.subjectUserId,
           subjectName: subject?.fullName ?? 'Unknown',
           subjectInitials: subject?.fullName.split(' ').map(n => n[0]).join('').slice(0, 2) ?? '?',
           consentStatus: tc.consentStatus,
@@ -155,6 +158,37 @@ export default function BusinessDashboardPage() {
   function showToast() {
     setToast(true)
     setTimeout(() => setToast(false), 3000)
+  }
+
+  async function requestTrustCheck(userId: string) {
+    setRequested(r => [...r, userId])
+    const compId = isRealUser && realCompany ? realCompany.id : COMPANY_ID
+    try {
+      await fetch('/api/trust-checks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: compId, userId }),
+      })
+    } catch { /* optimistic update already applied */ }
+  }
+
+  async function issueCredential(subjectUserId: string, checkId: string) {
+    setIssued(i => [...i, checkId])
+    const compId = isRealUser && realCompany ? realCompany.id : COMPANY_ID
+    try {
+      await fetch('/api/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id:      subjectUserId,
+          type:         'work_history',
+          title:        `Verified by ${businessName}`,
+          issuer_name:  businessName,
+          issuer_type:  'company',
+          issuer_id:    compId,
+        }),
+      })
+    } catch { /* ignore */ }
   }
 
   async function saveProfile() {
@@ -333,7 +367,7 @@ export default function BusinessDashboardPage() {
                               <span className="badge badge-gold">Awaiting consent</span>
                             ) : (
                               <button
-                                onClick={e => { e.stopPropagation(); setRequested(r => [...r, user.id]) }}
+                                onClick={e => { e.stopPropagation(); requestTrustCheck(user.id) }}
                                 className="btn btn-forest btn-sm"
                               >
                                 Request Check
@@ -427,6 +461,21 @@ export default function BusinessDashboardPage() {
                         <Icon style={{ width: 11, height: 11 }} />
                         {CONSENT_DISPLAY[check.consentStatus] ?? check.consentStatus}
                       </span>
+                      {check.consentStatus === 'granted' && !issued.includes(check.id) && (
+                        <button
+                          onClick={() => issueCredential(check.subjectId, check.id)}
+                          className="btn btn-sm"
+                          style={{ fontSize: 11, fontWeight: 600, background: 'rgba(124,79,196,.1)', color: '#7C4FC4', border: '1px solid rgba(124,79,196,.2)', borderRadius: 7, padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          Issue Credential
+                        </button>
+                      )}
+                      {check.consentStatus === 'granted' && issued.includes(check.id) && (
+                        <span className="badge" style={{ background: 'rgba(124,79,196,.1)', color: '#7C4FC4', fontSize: 11 }}>
+                          <CheckCircle style={{ width: 11, height: 11, display: 'inline', marginRight: 3 }} />
+                          Issued
+                        </span>
+                      )}
                     </div>
                   )
                 })}
