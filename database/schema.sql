@@ -171,6 +171,32 @@ CREATE POLICY "disputes_insert_own" ON public.disputes FOR INSERT WITH CHECK (au
 CREATE POLICY "disputes_update_admin" ON public.disputes FOR UPDATE
   USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
+-- ─── Team Members ─────────────────────────────────────────────────────────────
+-- Allows business owners to grant other users admin or viewer access.
+CREATE TABLE IF NOT EXISTS public.team_members (
+  id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id  UUID        REFERENCES public.companies(id) ON DELETE CASCADE NOT NULL,
+  user_id     UUID        REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  role        TEXT        NOT NULL DEFAULT 'viewer',  -- 'admin' | 'viewer' (owner is via companies.owner_id)
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (company_id, user_id)
+);
+
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+-- Members can see their own membership; owner can see all members of their company
+CREATE POLICY "team_select_member_or_owner" ON public.team_members FOR SELECT
+  USING (
+    auth.uid() = user_id OR
+    company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid())
+  );
+-- Only owner (via API with service role) can insert/update/delete
+CREATE POLICY "team_insert_owner" ON public.team_members FOR INSERT
+  WITH CHECK (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "team_update_owner" ON public.team_members FOR UPDATE
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "team_delete_owner" ON public.team_members FOR DELETE
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+
 -- ─── Webhooks ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.webhooks (
   id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
