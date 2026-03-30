@@ -1,5 +1,6 @@
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { users } from '@/lib/store'
+import { sendDisputeResolved } from '@/lib/email'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -164,6 +165,12 @@ export async function PATCH(request: Request) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    const { data: dispute } = await serviceClient
+      .from('disputes')
+      .select('filed_by')
+      .eq('id', id)
+      .single()
+
     const { error } = await serviceClient
       .from('disputes')
       .update({
@@ -175,6 +182,23 @@ export async function PATCH(request: Request) {
       .eq('id', id)
 
     if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    // Notify the filer
+    if (dispute?.filed_by) {
+      const { data: filerProfile } = await serviceClient
+        .from('profiles').select('full_name, email').eq('id', dispute.filed_by).single()
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
+      if (filerProfile?.email) {
+        sendDisputeResolved({
+          toEmail: filerProfile.email,
+          toName: filerProfile.full_name,
+          action: action as 'resolved' | 'dismissed',
+          resolutionNote,
+          dashboardUrl: `${baseUrl}/dashboard`,
+        }).catch(() => {})
+      }
+    }
+
     return Response.json({ ok: true })
   } catch {
     return Response.json({ error: 'Failed to update dispute' }, { status: 500 })

@@ -1,6 +1,7 @@
-import { trustChecks, companies } from '@/lib/store'
+import { trustChecks, companies, users } from '@/lib/store'
 import type { TrustCheck } from '@/lib/types'
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
+import { sendTrustCheckRequest } from '@/lib/email'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -113,6 +114,19 @@ export async function POST(request: Request) {
         .single()
 
       if (insertError) return Response.json({ error: insertError.message }, { status: 500 })
+
+      // Notify subject
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
+      const { data: subjectProfile } = await serviceClient.from('profiles').select('full_name, email').eq('id', userId).single()
+      const { data: companyRow } = await serviceClient.from('companies').select('business_name').eq('id', companyId).single()
+      if (subjectProfile?.email) {
+        sendTrustCheckRequest({
+          toEmail: subjectProfile.email,
+          toName: subjectProfile.full_name,
+          businessName: companyRow?.business_name ?? 'A business',
+          dashboardUrl: `${baseUrl}/dashboard`,
+        }).catch(() => {})
+      }
 
       return Response.json({ trustCheck: rowToTrustCheck(inserted) }, { status: 201 })
     } catch {
