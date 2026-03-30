@@ -1,6 +1,6 @@
-import { trustChecks } from '@/lib/store'
+import { trustChecks, companies } from '@/lib/store'
 import type { TrustCheck } from '@/lib/types'
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -35,6 +35,44 @@ export async function POST(request: Request) {
     )
   }
 
+  // IDOR fix: verify the session user owns the requesting company
+  if (!IS_DEMO_MODE) {
+    try {
+      const supabase = await createServerClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const { data: company, error: companyError } = await supabase
+        .from('companies')
+        .select('owner_id')
+        .eq('id', companyId)
+        .single()
+      if (companyError || !company) {
+        return Response.json({ error: 'Company not found' }, { status: 404 })
+      }
+      if (company.owner_id !== user.id) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    } catch {
+      return Response.json({ error: 'Failed to verify authorization' }, { status: 500 })
+    }
+  } else {
+    // Demo mode: verify against in-memory store
+    const supabase = await createServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const company = companies.find(c => c.id === companyId)
+    if (!company) {
+      return Response.json({ error: 'Company not found' }, { status: 404 })
+    }
+    if (company.ownerUserId !== user.id) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
+
   const newCheck: TrustCheck = {
     id: `tc-${Date.now()}`,
     requesterCompanyId: companyId,
@@ -51,23 +89,57 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  let body: { id?: string; status?: string }
   try {
-    const body = await request.json()
-    const { id, status } = body
-    if (!id || !status) return Response.json({ error: 'id and status are required' }, { status: 400 })
-    if (!['granted', 'denied'].includes(status)) {
-      return Response.json({ error: 'status must be granted or denied' }, { status: 400 })
-    }
+    body = await request.json()
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
+  const { id, status } = body
+  if (!id || !status) return Response.json({ error: 'id and status are required' }, { status: 400 })
+  if (!['granted', 'denied'].includes(status)) {
+    return Response.json({ error: 'status must be granted or denied' }, { status: 400 })
+  }
+
+  try {
     if (IS_DEMO_MODE) {
       const check = trustChecks.find(tc => tc.id === id)
       if (!check) return Response.json({ error: 'Trust check not found' }, { status: 404 })
+
+      // IDOR fix: verify the session user is the subject of the trust check
+      const supabase = await createServerClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      if (check.subjectUserId !== user.id) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 })
+      }
+
       check.consentStatus = status as 'granted' | 'denied'
       return Response.json({ ok: true })
     }
 
-    const supabase = createServiceClient()
-    const { error } = await supabase
+    // IDOR fix: verify the session user is the subject of the trust check
+    const supabase = await createServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const serviceClient = createServiceClient()
+    const { data: check, error: fetchError } = await serviceClient
+      .from('trust_checks')
+      .select('subject_user_id')
+      .eq('id', id)
+      .single()
+    if (fetchError || !check) return Response.json({ error: 'Trust check not found' }, { status: 404 })
+    if (check.subject_user_id !== user.id) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const { error } = await serviceClient
       .from('trust_checks')
       .update({ consent_status: status })
       .eq('id', id)

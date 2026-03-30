@@ -1,7 +1,15 @@
 import { pendingVerifications, users, companies } from '@/lib/store'
+import { createServerClient } from '@/lib/supabase-server'
 
 export async function PATCH(request: Request) {
   try {
+    const supabase = await createServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const caller = users.find(u => u.id === user?.id)
+    if (!caller || caller.role !== 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { id, action, note } = body
 

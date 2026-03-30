@@ -48,16 +48,18 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from('endorsements')
       .insert({
-        endorser_id: raterId,
-        subject_id:  targetId,
-        rating:      Number(stars),
-        comment:     comment ?? null,
+        endorser_id: newRating.raterId,
+        subject_id:  newRating.targetId,
+        rating:      newRating.stars,
+        comment:     newRating.comment ?? null,
       })
       .select()
       .single()
 
     if (error) return Response.json({ error: error.message }, { status: 500 })
-    return Response.json({ rating: data }, { status: 201 })
+    // Return a Rating-shaped object; use the DB-generated id if available
+    const saved: Rating = { ...newRating, id: data.id ?? newRating.id }
+    return Response.json({ rating: saved }, { status: 201 })
   } catch {
     return Response.json({ error: 'Failed to create rating' }, { status: 500 })
   }

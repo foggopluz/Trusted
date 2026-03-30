@@ -1,14 +1,35 @@
 'use client'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
 import { RatingDisplay } from '@/components/StarRating'
-import { users, companies, credentials, ratings } from '@/lib/store'
+import { credentials, ratings } from '@/lib/store'
 import { computeScore } from '@/lib/scoring'
 import { Building2, Search, CheckCircle, Clock } from 'lucide-react'
 
 type TypeFilter = 'all' | 'individual' | 'business'
+
+// These types mirror only the fields we actually use from the API responses.
+interface UserResult {
+  id: string
+  fullName: string
+  profession: string
+  location: string
+  country: string
+  role: string
+  idVerificationStatus: string
+}
+
+interface CompanyResult {
+  id: string
+  businessName: string
+  industry: string
+  country: string
+  foundedAt: string
+  memberSince: string
+  verificationStatus: string
+}
 
 function getScoreColor(score: number) {
   if (score >= 700) return 'var(--risk-low)'
@@ -42,19 +63,26 @@ function companyScore(foundedAt: string, verified: boolean): { score: number; ri
   return { score: s, riskTier }
 }
 
-// Unique countries across users and companies
-const allCountries = Array.from(new Set([
-  ...users.filter(u => u.role === 'individual').map(u => u.country),
-  ...companies.map(c => c.country),
-])).sort()
+// Static country list for the filter dropdown — kept lightweight so we don't
+// fetch all records just to populate a <select>.
+const KNOWN_COUNTRIES = [
+  'Australia', 'Canada', 'France', 'Germany', 'India', 'Kenya',
+  'Nigeria', 'South Africa', 'Tanzania', 'Uganda', 'United Kingdom',
+  'United States',
+].sort()
 
 function LookupContent() {
   const searchParams = useSearchParams()
-  const [query, setQuery] = useState(() => searchParams.get('q') ?? '')
+
+  const [query, setQuery]           = useState(() => searchParams.get('q') ?? '')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
-  const [country, setCountry] = useState('')
-  const [searched, setSearched] = useState(() => !!(searchParams.get('q')))
-  const [resultTab, setResultTab] = useState<'people' | 'businesses'>('people')
+  const [country, setCountry]       = useState('')
+  const [searched, setSearched]     = useState(() => !!(searchParams.get('q')))
+  const [resultTab, setResultTab]   = useState<'people' | 'businesses'>('people')
+
+  const [people, setPeople]         = useState<UserResult[]>([])
+  const [bizList, setBizList]       = useState<CompanyResult[]>([])
+  const [loading, setLoading]       = useState(false)
 
   // Re-sync if the URL param changes (e.g. back-navigation)
   useEffect(() => {
@@ -63,34 +91,56 @@ function LookupContent() {
     if (q) setSearched(true)
   }, [searchParams])
 
-  const individualUsers = users.filter(u => u.role === 'individual')
+  const fetchResults = useCallback(async (q: string, country: string, type: TypeFilter) => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (q)       params.set('q', q)
+      if (country) params.set('country', country)
 
-  const filteredPeople = individualUsers.filter(u => {
-    const q = query.toLowerCase()
-    const matchQuery = !query ||
-      u.fullName.toLowerCase().includes(q) ||
-      u.profession.toLowerCase().includes(q) ||
-      u.location.toLowerCase().includes(q)
-    const matchCountry = !country || u.country === country
-    const matchType = typeFilter === 'all' || typeFilter === 'individual'
-    return matchQuery && matchCountry && matchType
-  })
+      const fetchPeople = type !== 'business'
+      const fetchBiz    = type !== 'individual'
 
-  const filteredCompanies = companies.filter(c => {
-    const q = query.toLowerCase()
-    const matchQuery = !query ||
-      c.businessName.toLowerCase().includes(q) ||
-      c.industry.toLowerCase().includes(q) ||
-      c.country.toLowerCase().includes(q)
-    const matchCountry = !country || c.country === country
-    const matchType = typeFilter === 'all' || typeFilter === 'business'
-    return matchQuery && matchCountry && matchType
-  })
+      const [usersRes, companiesRes] = await Promise.all([
+        fetchPeople
+          ? fetch(`/api/users?${params.toString()}`).then(r => r.json())
+          : Promise.resolve({ users: [] }),
+        fetchBiz
+          ? fetch(`/api/companies?${params.toString()}`).then(r => r.json())
+          : Promise.resolve({ companies: [] }),
+      ])
 
+      setPeople(
+        (usersRes.users ?? []).filter((u: UserResult) => u.role === 'individual')
+      )
+      setBizList(companiesRes.companies ?? [])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Run a fetch whenever the user commits a search
   function handleSearch() {
     setSearched(true)
     if (typeFilter === 'business') setResultTab('businesses')
     else setResultTab('people')
+    fetchResults(query, country, typeFilter)
+  }
+
+  // Also fetch on initial load if there's a URL param
+  useEffect(() => {
+    const q = searchParams.get('q') ?? ''
+    if (q) fetchResults(q, '', 'all')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function handleClear() {
+    setQuery('')
+    setCountry('')
+    setTypeFilter('all')
+    setSearched(false)
+    setPeople([])
+    setBizList([])
   }
 
   return (
@@ -138,7 +188,7 @@ function LookupContent() {
               style={{ width: 140, border: 'none', background: 'var(--surface)', borderRadius: 8 }}
             >
               <option value="">All Countries</option>
-              {allCountries.map(c => (
+              {KNOWN_COUNTRIES.map(c => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -163,18 +213,18 @@ function LookupContent() {
               onClick={() => setResultTab('people')}
               className={`tab-btn${resultTab === 'people' ? ' active' : ''}`}
             >
-              People ({searched || !query ? filteredPeople.length : individualUsers.length})
+              People {searched ? `(${people.length})` : ''}
             </button>
             <button
               onClick={() => setResultTab('businesses')}
               className={`tab-btn${resultTab === 'businesses' ? ' active' : ''}`}
             >
-              Businesses ({searched || !query ? filteredCompanies.length : companies.length})
+              Businesses {searched ? `(${bizList.length})` : ''}
             </button>
           </div>
           {(query || country || typeFilter !== 'all') && (
             <button
-              onClick={() => { setQuery(''); setCountry(''); setTypeFilter('all'); setSearched(false) }}
+              onClick={handleClear}
               style={{ fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
             >
               Clear filters
@@ -182,10 +232,16 @@ function LookupContent() {
           )}
         </div>
 
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
+            <p style={{ fontSize: 15 }}>Searching…</p>
+          </div>
+        )}
+
         {/* People results */}
-        {resultTab === 'people' && (
+        {!loading && resultTab === 'people' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-            {filteredPeople.map(user => {
+            {people.map(user => {
               const userCreds = credentials.filter(c => c.subjectUserId === user.id)
               const score = computeScore(userCreds)
               const { avg, count } = avgRating(user.id, 'user')
@@ -242,7 +298,7 @@ function LookupContent() {
                 </div>
               )
             })}
-            {filteredPeople.length === 0 && (
+            {searched && people.length === 0 && (
               <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
                 <Search style={{ width: 40, height: 40, margin: '0 auto 16px', opacity: 0.3 }} />
                 <p style={{ fontSize: 15 }}>No individuals match your search</p>
@@ -253,9 +309,9 @@ function LookupContent() {
         )}
 
         {/* Business results */}
-        {resultTab === 'businesses' && (
+        {!loading && resultTab === 'businesses' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-            {filteredCompanies.map(company => {
+            {bizList.map(company => {
               const { score: cscore, riskTier } = companyScore(company.foundedAt, company.verificationStatus === 'verified')
               const { avg, count } = avgRating(company.id, 'company')
               const memberYear = company.memberSince
@@ -309,7 +365,7 @@ function LookupContent() {
                 </div>
               )
             })}
-            {filteredCompanies.length === 0 && (
+            {searched && bizList.length === 0 && (
               <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
                 <Building2 style={{ width: 40, height: 40, margin: '0 auto 16px', opacity: 0.3 }} />
                 <p style={{ fontSize: 15 }}>No businesses match your search</p>

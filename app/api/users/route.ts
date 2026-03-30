@@ -22,7 +22,7 @@ export async function GET(request: Request) {
         u.profession.toLowerCase().includes(lower)
       )
     }
-    return Response.json({ users: result })
+    return Response.json({ users: result.slice(0, 50) })
   }
 
   try {
@@ -35,9 +35,14 @@ export async function GET(request: Request) {
 
     if (country)     query = query.eq('country', country)
     if (accountType) query = query.eq('account_type', accountType)
-    if (q)           query = query.ilike('full_name', `%${q}%`)
+    // Full-text search avoids the leading-wildcard problem of ilike('%q%'),
+    // which cannot use a B-tree index and causes full table scans.
+    // Requires a GIN index — see database/schema.sql for the index definition.
+    if (q)           query = query.textSearch('full_name', q, { type: 'websearch' })
 
-    const { data, error } = await query.order('trust_score', { ascending: false })
+    const { data, error } = await query
+      .order('trust_score', { ascending: false })
+      .limit(50)
     if (error) return Response.json({ error: error.message }, { status: 500 })
     return Response.json({ users: data ?? [] })
   } catch {

@@ -34,22 +34,12 @@ export default function Nav({ transparent = false }: NavProps) {
       setUserInitials(parts.map(p => p[0]).join('').slice(0, 2).toUpperCase())
     }
 
-    // Check demo sessionStorage first
-    try {
-      const raw = sessionStorage.getItem('tn_current_user')
-      if (raw) {
-        const cu = JSON.parse(raw) as { name?: string; fullName?: string; email?: string }
-        const name = cu.fullName || cu.name || cu.email || 'Me'
-        applySession(name)
-        return
-      }
-    } catch { /* ignore */ }
-
     // Check real Supabase session
     if (!IS_DEMO_MODE) {
       const client = createSupabaseBrowserClient()
-      client.auth.getUser().then(({ data: { user } }) => {
-        if (user) {
+      client.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          const user = session.user
           const name = (user.user_metadata?.full_name as string | undefined) || user.email || 'Me'
           applySession(name)
         }

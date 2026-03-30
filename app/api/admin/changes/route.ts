@@ -1,7 +1,15 @@
-import { changeRequests } from '@/lib/store'
+import { changeRequests, users } from '@/lib/store'
+import { createServerClient } from '@/lib/supabase-server'
 
 export async function PATCH(request: Request) {
   try {
+    const supabase = await createServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const caller = users.find(u => u.id === user?.id)
+    if (!caller || caller.role !== 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { id, action } = body
 
@@ -15,7 +23,7 @@ export async function PATCH(request: Request) {
 
     cr.status     = action
     cr.resolvedAt = new Date().toISOString().split('T')[0]
-    cr.resolvedBy = 'u-admin'
+    cr.resolvedBy = caller.id
 
     return Response.json({ ok: true })
   } catch {

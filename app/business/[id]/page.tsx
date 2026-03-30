@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import ScoreRing from '@/components/ScoreRing'
 import StarRating, { RatingDisplay } from '@/components/StarRating'
 import { companies, ratings } from '@/lib/store'
+import { computeBusinessScore } from '@/lib/scoring'
 import { Building2, CheckCircle, Star, Globe, MapPin, Phone, Mail, Calendar } from 'lucide-react'
 
 function getScoreColor(score: number) {
@@ -67,28 +68,7 @@ export default function BusinessProfilePage() {
     )
   }
 
-  // Company score: derive from verification status + operating maturity
-  const verified = company.verificationStatus === 'verified'
-  const ageMonths = monthsSince(company.foundedAt)
-  const ageFactor = Math.min(ageMonths / 36, 1) // max out at 3 years
-  const companyScore = verified
-    ? Math.round(650 + ageFactor * 250)   // 650–900 for verified businesses
-    : Math.round(200 + ageFactor * 150)   // 200–350 for unverified
-  const riskTier = companyScore >= 700 ? 'low' : companyScore >= 450 ? 'medium' : 'high'
-  const score = {
-    score: companyScore,
-    riskTier: riskTier as 'low' | 'medium' | 'high',
-    confidence: (verified ? 'high' : 'low') as 'low' | 'medium' | 'high',
-    dataAgeMonths: ageMonths,
-    credentialCount: verified ? 3 : 0,
-    breakdown: {
-      identity:            verified ? Math.round(companyScore * 0.20) : 0,
-      financial:           verified ? Math.round(companyScore * 0.30) : 0,
-      contractPerformance: verified ? Math.round(companyScore * 0.30) : 0,
-      networkTrust:        verified ? Math.round(companyScore * 0.20) : 0,
-      disputePenalty:      0,
-    },
-  }
+  const score = computeBusinessScore(company.verificationStatus, company.foundedAt)
 
   const companyRatings = ratings.filter(r => r.targetId === company.id && r.targetType === 'company')
   const avgStars = companyRatings.length > 0

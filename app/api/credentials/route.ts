@@ -1,4 +1,4 @@
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServiceClient, createServerClient } from '@/lib/supabase-server'
 import { credentials as demoCredentials } from '@/lib/store'
 
 const IS_DEMO_MODE =
@@ -7,19 +7,23 @@ const IS_DEMO_MODE =
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const userId = searchParams.get('userId')
-  const type   = searchParams.get('type')
+  const type = searchParams.get('type')
 
-  if (IS_DEMO_MODE || !userId) {
+  if (IS_DEMO_MODE) {
+    const userId = searchParams.get('userId')
     let result = demoCredentials
     if (userId) result = result.filter(c => c.subjectUserId === userId)
     if (type)   result = result.filter(c => c.credentialType === type)
     return Response.json({ credentials: result })
   }
 
+  const authClient = await createServerClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const supabase = createServiceClient()
-    let query = supabase.from('credentials').select('*').eq('user_id', userId)
+    let query = supabase.from('credentials').select('*').eq('user_id', user.id)
     if (type) query = query.eq('type', type)
     const { data, error } = await query.order('created_at', { ascending: false })
     if (error) return Response.json({ error: error.message }, { status: 500 })
@@ -32,15 +36,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { user_id, type, title, description, issuer_name, issuer_type, document_url } = body
+    const { type, title, description, issuer_name, issuer_type, document_url } = body
 
-    if (!user_id) return Response.json({ error: 'user_id is required' }, { status: 400 })
-    if (!type)    return Response.json({ error: 'type is required' }, { status: 400 })
+    if (!type) return Response.json({ error: 'type is required' }, { status: 400 })
 
     if (IS_DEMO_MODE) {
       const newCredential = {
         id: `cred-${Date.now()}`,
-        user_id, type, title: title ?? null,
+        user_id: 'demo', type, title: title ?? null,
         description: description ?? null,
         issuer_name: issuer_name ?? null,
         issuer_type: issuer_type ?? null,
@@ -50,10 +53,14 @@ export async function POST(request: Request) {
       return Response.json({ credential: newCredential }, { status: 201 })
     }
 
+    const authClient = await createServerClient()
+    const { data: { user } } = await authClient.auth.getUser()
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('credentials')
-      .insert({ user_id, type, title, description, issuer_name, issuer_type, document_url, status: 'pending' })
+      .insert({ user_id: user.id, type, title, description, issuer_name, issuer_type, document_url, status: 'pending' })
       .select()
       .single()
 

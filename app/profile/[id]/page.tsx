@@ -59,6 +59,7 @@ export default function ProfilePage() {
   const [starVal, setStarVal] = useState(0)
   const [comment, setComment] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [ratingError, setRatingError] = useState<string | null>(null)
 
   if (!user) {
     return (
@@ -98,8 +99,9 @@ export default function ProfilePage() {
 
   async function submitRating() {
     if (starVal === 0) return
+    setRatingError(null)
     try {
-      await fetch('/api/ratings', {
+      const res = await fetch('/api/ratings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -110,8 +112,11 @@ export default function ProfilePage() {
           raterName:  'Guest',
         }),
       })
-    } catch { /* ignore — show success regardless */ }
-    setSubmitted(true)
+      if (!res.ok) throw new Error(`Request failed (${res.status})`)
+      setSubmitted(true)
+    } catch (err) {
+      setRatingError(err instanceof Error ? err.message : 'Failed to submit rating. Please try again.')
+    }
   }
 
   return (
@@ -302,6 +307,9 @@ export default function ProfilePage() {
                       style={{ resize: 'vertical' }}
                     />
                   </div>
+                  {ratingError && (
+                    <p style={{ fontSize: 13, color: 'var(--risk-high)', margin: 0 }}>{ratingError}</p>
+                  )}
                   <button
                     onClick={submitRating}
                     disabled={starVal === 0}

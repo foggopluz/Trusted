@@ -38,7 +38,7 @@ const MAX_DISPUTE_PENALTY = 0.20
 function monthsAgo(dateStr: string): number {
   const issued = new Date(dateStr)
   const now = new Date()
-  return (now.getTime() - issued.getTime()) / (1000 * 60 * 60 * 24 * 30)
+  return (Date.now() - issued.getTime()) / (1000 * 60 * 60 * 24 * 365.25 / 12)
 }
 
 function recencyMultiplier(issuedAt: string): number {
@@ -144,6 +144,52 @@ export function getScoreLabel(score: number): { label: string; riskLevel: RiskTi
   if (score >= 450) return { label: 'Moderate',     riskLevel: 'medium' }
   if (score >= 250) return { label: 'Poor',         riskLevel: 'high' }
   return               { label: 'Very Poor',     riskLevel: 'high' }
+}
+
+// ─── Business score ───────────────────────────────────────────────────────────
+
+export interface BusinessScoreResult {
+  score: number
+  riskTier: 'low' | 'medium' | 'high'
+  confidence: 'low' | 'medium' | 'high'
+  dataAgeMonths: number
+  credentialCount: number
+  breakdown: {
+    identity: number
+    financial: number
+    contractPerformance: number
+    networkTrust: number
+    disputePenalty: number
+  }
+}
+
+export function computeBusinessScore(
+  verificationStatus: string,
+  foundedAt: string,
+): BusinessScoreResult {
+  const verified = verificationStatus === 'verified'
+  const ageMonths = Math.floor((Date.now() - new Date(foundedAt).getTime()) / (1000 * 60 * 60 * 24 * 30))
+  const ageFactor = Math.min(ageMonths / 36, 1) // max out at 3 years
+  const companyScore = verified
+    ? Math.round(650 + ageFactor * 250)   // 650–900 for verified businesses
+    : Math.round(200 + ageFactor * 150)   // 200–350 for unverified
+  const riskTier: 'low' | 'medium' | 'high' =
+    companyScore >= 700 ? 'low' : companyScore >= 450 ? 'medium' : 'high'
+
+  return {
+    score: companyScore,
+    riskTier,
+    confidence: verified ? 'high' : 'low',
+    dataAgeMonths: ageMonths,
+    credentialCount: verified ? 3 : 0,
+    breakdown: {
+      identity:            verified ? Math.round(companyScore * 0.20) : 0,
+      financial:           verified ? Math.round(companyScore * 0.30) : 0,
+      contractPerformance: verified ? Math.round(companyScore * 0.30) : 0,
+      networkTrust:        verified ? Math.round(companyScore * 0.20) : 0,
+      disputePenalty:      0,
+    },
+  }
 }
 
 // ─── Supabase-based scoring ───────────────────────────────────────────────────

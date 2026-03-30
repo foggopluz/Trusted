@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ─── Indexes ──────────────────────────────────────────────────────────────────
+-- GIN index for full-text search on profiles.full_name.
+-- Required by the textSearch() call in app/api/users/route.ts.
+-- Run once against your Supabase project:
+CREATE INDEX IF NOT EXISTS idx_profiles_fullname_fts
+  ON public.profiles USING gin(to_tsvector('english', full_name));
+
 -- ─── Companies ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.companies (
   id                  UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
