@@ -1,5 +1,7 @@
 import { createServiceClient, createServerClient } from '@/lib/supabase-server'
 import { credentials as demoCredentials } from '@/lib/store'
+import { issueVC, VC_TYPE_MAP } from '@/lib/vc'
+import { sendCredentialIssued } from '@/lib/email'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -79,7 +81,42 @@ export async function PATCH(request: Request) {
     if (IS_DEMO_MODE)   return Response.json({ ok: true })
 
     const supabase = createServiceClient()
-    const { error } = await supabase.from('credentials').update({ status }).eq('id', id)
+
+    // If approving, issue a W3C Verifiable Credential and store its proof hash
+    let vcProofHash: string | null = null
+    if (status === 'approved') {
+      const { data: cred } = await supabase.from('credentials').select('*').eq('id', id).single()
+      if (cred) {
+        const vcType = VC_TYPE_MAP[cred.type as string] ?? 'VerifiableCredential'
+        const vc = await issueVC({
+          credentialId: cred.id,
+          subjectUserId: cred.user_id,
+          credentialType: vcType,
+          claims: { type: cred.type, title: cred.title, issuerName: cred.issuer_name },
+          issuanceDate: new Date().toISOString(),
+          expirationDate: cred.expires_at ?? undefined,
+        })
+        vcProofHash = vc.proof.proofValue
+
+        // Notify the subject
+        const { data: profile } = await supabase.from('profiles').select('full_name, email').eq('id', cred.user_id).single()
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
+        if (profile?.email) {
+          sendCredentialIssued({
+            toEmail: profile.email,
+            toName: profile.full_name,
+            credentialTitle: cred.title ?? vcType,
+            issuerName: cred.issuer_name ?? 'TrustNet',
+            credentialsUrl: `${baseUrl}/credentials`,
+          }).catch(() => {})
+        }
+      }
+    }
+
+    const updatePayload: Record<string, unknown> = { status }
+    if (vcProofHash) updatePayload.proof_hash = vcProofHash
+
+    const { error } = await supabase.from('credentials').update(updatePayload).eq('id', id)
     if (error) return Response.json({ error: error.message }, { status: 500 })
     return Response.json({ ok: true })
   } catch {
