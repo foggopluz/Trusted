@@ -3,6 +3,7 @@ import type { TrustCheck } from '@/lib/types'
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { sendTrustCheckRequest } from '@/lib/email'
 import { audit } from '@/lib/audit'
+import { fireWebhookEvent } from '@/lib/webhooks'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -244,6 +245,10 @@ export async function PATCH(request: Request) {
       .eq('id', id)
     if (error) return Response.json({ error: error.message }, { status: 500 })
     audit({ actorId: user.id, action: `trust_check.${status}`, targetType: 'trust_check', targetId: id }).catch(() => {})
+    fireWebhookEvent(
+      status === 'granted' ? 'trust_check.granted' : 'trust_check.denied',
+      { trustCheckId: id, subjectUserId: user.id },
+    ).catch(() => {})
     return Response.json({ ok: true })
   } catch {
     return Response.json({ error: 'Failed to update trust check' }, { status: 500 })

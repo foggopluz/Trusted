@@ -2,6 +2,7 @@ import { createServiceClient, createServerClient } from '@/lib/supabase-server'
 import { credentials as demoCredentials } from '@/lib/store'
 import { issueVC, VC_TYPE_MAP } from '@/lib/vc'
 import { sendCredentialIssued } from '@/lib/email'
+import { fireWebhookEvent } from '@/lib/webhooks'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -118,6 +119,16 @@ export async function PATCH(request: Request) {
 
     const { error } = await supabase.from('credentials').update(updatePayload).eq('id', id)
     if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    // Fire webhook events (fire-and-forget)
+    const event = status === 'approved' ? 'credential.approved' : status === 'rejected' ? 'credential.rejected' : null
+    if (event) {
+      fireWebhookEvent(event, { credentialId: id, status }).catch(() => {})
+      if (status === 'approved') {
+        fireWebhookEvent('score.changed', { credentialId: id, reason: 'credential_approved' }).catch(() => {})
+      }
+    }
+
     return Response.json({ ok: true })
   } catch {
     return Response.json({ error: 'Failed to update credential' }, { status: 500 })

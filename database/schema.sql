@@ -170,6 +170,45 @@ CREATE POLICY "disputes_insert_own" ON public.disputes FOR INSERT WITH CHECK (au
 CREATE POLICY "disputes_update_admin" ON public.disputes FOR UPDATE
   USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
+-- ─── Webhooks ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.webhooks (
+  id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id  UUID        REFERENCES public.companies(id) ON DELETE CASCADE NOT NULL,
+  url         TEXT        NOT NULL,
+  secret      TEXT        NOT NULL,   -- HMAC-SHA256 signing secret (shown once on creation)
+  events      TEXT[]      NOT NULL,   -- e.g. '{score.changed,credential.approved}'
+  is_active   BOOLEAN     DEFAULT true,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.webhooks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "webhooks_select_own" ON public.webhooks FOR SELECT
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "webhooks_insert_own" ON public.webhooks FOR INSERT
+  WITH CHECK (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "webhooks_update_own" ON public.webhooks FOR UPDATE
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+
+-- Webhook delivery log (append-only)
+CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  webhook_id   UUID        REFERENCES public.webhooks(id) ON DELETE CASCADE NOT NULL,
+  event        TEXT        NOT NULL,
+  payload      JSONB       NOT NULL,
+  status       TEXT        DEFAULT 'pending',   -- 'success' | 'failed'
+  status_code  INTEGER,
+  response     TEXT,
+  delivered_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.webhook_deliveries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "webhook_deliveries_select_own" ON public.webhook_deliveries FOR SELECT
+  USING (webhook_id IN (
+    SELECT id FROM public.webhooks WHERE company_id IN (
+      SELECT id FROM public.companies WHERE owner_id = auth.uid()
+    )
+  ));
+
 -- ─── Scoring Config ───────────────────────────────────────────────────────────
 -- Single-row table. Always UPDATE, never INSERT after initial seed.
 CREATE TABLE IF NOT EXISTS public.scoring_config (
