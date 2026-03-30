@@ -3,6 +3,7 @@ import { credentials as demoCredentials } from '@/lib/store'
 import { issueVC, VC_TYPE_MAP } from '@/lib/vc'
 import { sendCredentialIssued } from '@/lib/email'
 import { fireWebhookEvent } from '@/lib/webhooks'
+import { assessFraudRisk } from '@/lib/fraud'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -68,6 +69,26 @@ export async function POST(request: Request) {
       .single()
 
     if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    // Async fraud check — doesn't block the response
+    assessFraudRisk({
+      userId:      user.id,
+      credentialId: data.id,
+      issuerName:  issuer_name ?? undefined,
+      documentUrl: document_url ?? undefined,
+    }).then(assessment => {
+      if (assessment.severity === 'high' || assessment.severity === 'medium') {
+        // Audit the fraud signal so admins can investigate
+        supabase.from('audit_logs').insert({
+          actor_id:    user.id,
+          action:      'fraud.signal_detected',
+          target_type: 'credential',
+          target_id:   data.id,
+          metadata:    { severity: assessment.severity, score: assessment.score, signals: assessment.signals },
+        }).then(() => {}).catch(() => {})
+      }
+    }).catch(() => {})
+
     return Response.json({ credential: data }, { status: 201 })
   } catch {
     return Response.json({ error: 'Failed to create credential' }, { status: 500 })
