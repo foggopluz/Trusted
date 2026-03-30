@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Shield, ChevronRight, CheckCircle, Upload, X, FileText, Loader2 } from 'lucide-react'
 import { COUNTRY_VERIFICATION_METHODS, VERIFICATION_METHOD_LABELS } from '@/lib/types'
-import { createSupabaseBrowserClient, IS_DEMO_MODE } from '@/lib/supabase'
+import { createSupabaseBrowserClient, IS_DEMO_MODE, uploadDocument } from '@/lib/supabase'
 
 const COUNTRIES = Object.keys(COUNTRY_VERIFICATION_METHODS)
 type Step = 1 | 2 | 3 | 4
@@ -123,17 +123,15 @@ function IndividualRegisterForm() {
           return
         }
 
-        // 2. Upload ID document to Supabase Storage
+        // 2. Upload ID document to Supabase Storage (stores path, not public URL)
         let documentUrl: string | null = null
         if (idFile) {
-          const ext = idFile.name.split('.').pop()
-          const path = `${userId}/id-doc.${ext}`
-          const { error: uploadError } = await client.storage
-            .from('documents')
-            .upload(path, idFile, { upsert: true })
-          if (!uploadError) {
-            const { data: urlData } = client.storage.from('documents').getPublicUrl(path)
-            documentUrl = urlData.publicUrl
+          try {
+            documentUrl = await uploadDocument(client, userId, idFile, 'id-doc')
+          } catch (uploadErr) {
+            setErrors([uploadErr instanceof Error ? uploadErr.message : 'Document upload failed. Please try again.'])
+            setLoading(false)
+            return
           }
         }
 

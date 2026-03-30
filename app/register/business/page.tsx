@@ -3,7 +3,7 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { Shield, ChevronRight, CheckCircle, Upload, X, FileText, Loader2 } from 'lucide-react'
 import { COUNTRY_VERIFICATION_METHODS } from '@/lib/types'
-import { createSupabaseBrowserClient, IS_DEMO_MODE } from '@/lib/supabase'
+import { createSupabaseBrowserClient, IS_DEMO_MODE, uploadDocument } from '@/lib/supabase'
 
 const COUNTRIES = Object.keys(COUNTRY_VERIFICATION_METHODS)
 type Step = 1 | 2 | 3 | 4
@@ -102,15 +102,15 @@ export default function BusinessRegisterPage() {
           return
         }
 
-        // 2. Upload certificate
+        // 2. Upload certificate (stores path, not public URL)
         let certUrl: string | null = null
         if (certFile) {
-          const ext = certFile.name.split('.').pop()
-          const path = `${userId}/incorporation-cert.${ext}`
-          const { error: uploadError } = await client.storage.from('documents').upload(path, certFile, { upsert: true })
-          if (!uploadError) {
-            const { data: urlData } = client.storage.from('documents').getPublicUrl(path)
-            certUrl = urlData.publicUrl
+          try {
+            certUrl = await uploadDocument(client, userId, certFile, 'incorporation-cert')
+          } catch (uploadErr) {
+            setErrors([uploadErr instanceof Error ? uploadErr.message : 'Certificate upload failed. Please try again.'])
+            setLoading(false)
+            return
           }
         }
 

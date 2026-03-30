@@ -206,3 +206,50 @@ export const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'
 )
+
+// ─── Document Storage Helpers ─────────────────────────────────────────────────
+
+const DOCUMENTS_BUCKET = 'documents'
+
+/**
+ * Upload a document to Supabase Storage.
+ * Returns the storage path (e.g. "userId/id-doc.jpg") to store in the DB.
+ * Throws on upload failure so callers can surface errors to the user.
+ */
+export async function uploadDocument(
+  client: ReturnType<typeof createSupabaseBrowserClient>,
+  userId: string,
+  file: File,
+  filename = 'id-doc'
+): Promise<string> {
+  const ext = file.name.split('.').pop() ?? 'bin'
+  const path = `${userId}/${filename}.${ext}`
+
+  const { error } = await client.storage
+    .from(DOCUMENTS_BUCKET)
+    .upload(path, file, { upsert: true })
+
+  if (error) throw new Error(`Document upload failed: ${error.message}`)
+  return path
+}
+
+/**
+ * Generate a short-lived signed URL for a stored document path.
+ * Default expiry: 1 hour (3600 seconds). Suitable for admin review flows.
+ */
+export async function getSignedDocumentUrl(
+  client: ReturnType<typeof createSupabaseBrowserClient>,
+  path: string,
+  expiresIn = 3600
+): Promise<string | null> {
+  if (!path) return null
+  // If a legacy full URL was stored, return it as-is
+  if (path.startsWith('http')) return path
+
+  const { data, error } = await client.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUrl(path, expiresIn)
+
+  if (error || !data) return null
+  return data.signedUrl
+}

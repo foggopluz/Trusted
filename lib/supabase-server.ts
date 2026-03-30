@@ -30,6 +30,26 @@ export async function createServerClient() {
   )
 }
 
+// ─── Document Storage Helper (server-side) ────────────────────────────────────
+
+/**
+ * Generate a signed URL for a stored document path using the service role client.
+ * Use this in admin/API routes where you need to display private documents.
+ * Default expiry: 1 hour.
+ */
+export async function getSignedDocumentUrlServer(path: string, expiresIn = 3600): Promise<string | null> {
+  if (!path) return null
+  if (path.startsWith('http')) return path  // legacy full URL stored
+
+  const client = createServiceClient()
+  const { data, error } = await client.storage
+    .from('documents')
+    .createSignedUrl(path, expiresIn)
+
+  if (error || !data) return null
+  return data.signedUrl
+}
+
 // ─── Service role client (bypasses RLS — for admin/API routes only) ───────────
 
 export function createServiceClient() {
