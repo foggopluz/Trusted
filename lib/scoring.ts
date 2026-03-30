@@ -8,7 +8,13 @@ export interface SupabaseCredential {
   type: 'employment' | 'payment' | 'endorsement' | 'identity' | 'skill'
   status: 'pending' | 'approved' | 'rejected'
   created_at: string
+  expires_at?: string | null
   rating?: number
+}
+
+function isExpired(expiresAt?: string | null): boolean {
+  if (!expiresAt) return false
+  return new Date(expiresAt).getTime() < Date.now()
 }
 
 export interface SupabaseScoreResult {
@@ -59,7 +65,7 @@ function getProvenance(credential: Credential): number {
 }
 
 export function computeScore(credentials: Credential[], disputeCount = 0): ScoreResult {
-  const active = credentials.filter(c => c.status === 'active')
+  const active = credentials.filter(c => c.status === 'active' && !isExpired(c.expiresAt))
 
   let identityRaw = 0
   let financialRaw = 0
@@ -205,7 +211,7 @@ export function computeScoreFromSupabase(
   credentials: SupabaseCredential[],
   verificationStatus: string,
 ): SupabaseScoreResult {
-  const approved = credentials.filter(c => c.status === 'approved')
+  const approved = credentials.filter(c => c.status === 'approved' && !isExpired(c.expires_at))
 
   // Employment (work_history mapped to employment)
   const employmentCreds = approved.filter(c => c.type === 'employment')

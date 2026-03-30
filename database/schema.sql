@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS public.credentials (
   confidence        FLOAT       DEFAULT 0.90,
   document_url      TEXT,
   issued_at         TIMESTAMPTZ DEFAULT NOW(),
+  expires_at        TIMESTAMPTZ,                   -- NULL means no expiry
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
