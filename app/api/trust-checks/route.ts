@@ -6,16 +6,46 @@ const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co'
 
+// Map a Supabase DB row to the TrustCheck type
+function rowToTrustCheck(row: Record<string, unknown>): TrustCheck {
+  return {
+    id:                 row.id as string,
+    requesterCompanyId: row.requester_company_id as string,
+    subjectUserId:      row.subject_id as string,
+    consentStatus:      row.consent_status as TrustCheck['consentStatus'],
+    scoreAtCheck:       row.score_at_check as number | undefined,
+    riskTier:           row.risk_tier as TrustCheck['riskTier'] | undefined,
+    credentialsShared:  (row.credentials_shared as string[]) ?? [],
+    createdAt:          (row.created_at as string).split('T')[0],
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const companyId = searchParams.get('companyId')
   const userId    = searchParams.get('userId')
 
-  let result = trustChecks
-  if (companyId) result = result.filter(tc => tc.requesterCompanyId === companyId)
-  if (userId)    result = result.filter(tc => tc.subjectUserId === userId)
+  if (IS_DEMO_MODE) {
+    let result = trustChecks
+    if (companyId) result = result.filter(tc => tc.requesterCompanyId === companyId)
+    if (userId)    result = result.filter(tc => tc.subjectUserId === userId)
+    return Response.json({ trustChecks: result })
+  }
 
-  return Response.json({ trustChecks: result })
+  try {
+    const serviceClient = createServiceClient()
+    let query = serviceClient.from('trust_checks').select('*')
+    if (companyId) query = query.eq('requester_company_id', companyId)
+    if (userId)    query = query.eq('subject_id', userId)
+    query = query.order('created_at', { ascending: false })
+
+    const { data, error } = await query
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    return Response.json({ trustChecks: (data ?? []).map(rowToTrustCheck) })
+  } catch {
+    return Response.json({ error: 'Failed to fetch trust checks' }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request) {
@@ -35,7 +65,6 @@ export async function POST(request: Request) {
     )
   }
 
-  // IDOR fix: verify the session user owns the requesting company
   if (!IS_DEMO_MODE) {
     try {
       const supabase = await createServerClient()
@@ -43,7 +72,11 @@ export async function POST(request: Request) {
       if (!user) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      const { data: company, error: companyError } = await supabase
+
+      const serviceClient = createServiceClient()
+
+      // Verify session user owns the requesting company
+      const { data: company, error: companyError } = await serviceClient
         .from('companies')
         .select('owner_id')
         .eq('id', companyId)
@@ -54,23 +87,51 @@ export async function POST(request: Request) {
       if (company.owner_id !== user.id) {
         return Response.json({ error: 'Forbidden' }, { status: 403 })
       }
+
+      // Prevent duplicate pending checks
+      const { data: existing } = await serviceClient
+        .from('trust_checks')
+        .select('id, consent_status')
+        .eq('requester_company_id', companyId)
+        .eq('subject_id', userId)
+        .eq('consent_status', 'pending')
+        .maybeSingle()
+      if (existing) {
+        return Response.json({ error: 'A pending trust check already exists for this user' }, { status: 409 })
+      }
+
+      const { data: inserted, error: insertError } = await serviceClient
+        .from('trust_checks')
+        .insert({
+          requester_id:         user.id,
+          subject_id:           userId,
+          requester_company_id: companyId,
+          consent_status:       'pending',
+          credentials_shared:   [],
+        })
+        .select()
+        .single()
+
+      if (insertError) return Response.json({ error: insertError.message }, { status: 500 })
+
+      return Response.json({ trustCheck: rowToTrustCheck(inserted) }, { status: 201 })
     } catch {
-      return Response.json({ error: 'Failed to verify authorization' }, { status: 500 })
+      return Response.json({ error: 'Failed to create trust check' }, { status: 500 })
     }
-  } else {
-    // Demo mode: verify against in-memory store
-    const supabase = await createServerClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const company = companies.find(c => c.id === companyId)
-    if (!company) {
-      return Response.json({ error: 'Company not found' }, { status: 404 })
-    }
-    if (company.ownerUserId !== user.id) {
-      return Response.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  }
+
+  // Demo mode: verify against in-memory store
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const company = companies.find(c => c.id === companyId)
+  if (!company) {
+    return Response.json({ error: 'Company not found' }, { status: 404 })
+  }
+  if (company.ownerUserId !== user.id) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const newCheck: TrustCheck = {
@@ -81,10 +142,7 @@ export async function POST(request: Request) {
     credentialsShared: [],
     createdAt: new Date().toISOString().split('T')[0],
   }
-
-  // Append to in-memory store (persists for the process lifetime)
   trustChecks.push(newCheck)
-
   return Response.json({ trustCheck: newCheck }, { status: 201 })
 }
 
@@ -107,7 +165,6 @@ export async function PATCH(request: Request) {
       const check = trustChecks.find(tc => tc.id === id)
       if (!check) return Response.json({ error: 'Trust check not found' }, { status: 404 })
 
-      // IDOR fix: verify the session user is the subject of the trust check
       const supabase = await createServerClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -121,7 +178,6 @@ export async function PATCH(request: Request) {
       return Response.json({ ok: true })
     }
 
-    // IDOR fix: verify the session user is the subject of the trust check
     const supabase = await createServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -131,11 +187,11 @@ export async function PATCH(request: Request) {
     const serviceClient = createServiceClient()
     const { data: check, error: fetchError } = await serviceClient
       .from('trust_checks')
-      .select('subject_user_id')
+      .select('subject_id')
       .eq('id', id)
       .single()
     if (fetchError || !check) return Response.json({ error: 'Trust check not found' }, { status: 404 })
-    if (check.subject_user_id !== user.id) {
+    if (check.subject_id !== user.id) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 

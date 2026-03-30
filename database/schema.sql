@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS public.trust_checks (
   subject_id            UUID        REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   requester_company_id  UUID        REFERENCES public.companies(id) ON DELETE SET NULL,
   consent_status        TEXT        DEFAULT 'pending',  -- 'pending' | 'granted' | 'denied'
+  score_at_check        INTEGER,
+  risk_tier             TEXT,                           -- 'low' | 'medium' | 'high'
+  credentials_shared    JSONB       DEFAULT '[]',
   note                  TEXT,
   created_at            TIMESTAMPTZ DEFAULT NOW()
 );
