@@ -115,6 +115,16 @@ export async function POST(request: Request) {
 
       if (insertError) return Response.json({ error: insertError.message }, { status: 500 })
 
+      // Enforce plan check limit
+      const { data: checkLimit } = await serviceClient
+        .from('companies')
+        .select('checks_remaining, checks_used')
+        .eq('id', companyId)
+        .single()
+      if (checkLimit && checkLimit.checks_remaining <= 0) {
+        return Response.json({ error: 'Check limit reached for your plan. Please upgrade to continue.' }, { status: 402 })
+      }
+
       // Notify subject
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
       const { data: subjectProfile } = await serviceClient.from('profiles').select('full_name, email').eq('id', userId).single()
@@ -127,6 +137,15 @@ export async function POST(request: Request) {
           dashboardUrl: `${baseUrl}/dashboard`,
         }).catch(() => {})
       }
+
+      // Decrement checks_remaining, increment checks_used
+      await serviceClient
+        .from('companies')
+        .update({
+          checks_remaining: (checkLimit?.checks_remaining ?? 1) - 1,
+          checks_used:      (checkLimit?.checks_used ?? 0) + 1,
+        })
+        .eq('id', companyId)
 
       return Response.json({ trustCheck: rowToTrustCheck(inserted) }, { status: 201 })
     } catch {
@@ -148,6 +167,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  if (company.checksRemaining <= 0) {
+    return Response.json({ error: 'Check limit reached for your plan. Please upgrade to continue.' }, { status: 402 })
+  }
+
   const newCheck: TrustCheck = {
     id: `tc-${Date.now()}`,
     requesterCompanyId: companyId,
@@ -157,6 +180,8 @@ export async function POST(request: Request) {
     createdAt: new Date().toISOString().split('T')[0],
   }
   trustChecks.push(newCheck)
+  company.checksRemaining -= 1
+  company.checksUsed      += 1
   return Response.json({ trustCheck: newCheck }, { status: 201 })
 }
 

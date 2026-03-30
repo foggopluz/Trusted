@@ -5,6 +5,13 @@ export type RiskTier = 'low' | 'medium' | 'high'
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
 export type UserRole = 'individual' | 'business' | 'admin'
 export type SubscriptionPlan = 'free' | 'basic' | 'pro' | 'enterprise'
+
+export const PLAN_CHECK_LIMITS: Record<SubscriptionPlan, number> = {
+  free:       3,
+  basic:      25,
+  pro:        75,
+  enterprise: 250,
+}
 export type ConsentStatus = 'pending' | 'granted' | 'denied'
 export type AccountType = 'job_seeker' | 'professional' | 'business'
 export type ChangeRequestStatus = 'pending' | 'approved' | 'rejected'

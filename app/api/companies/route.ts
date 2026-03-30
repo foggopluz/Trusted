@@ -1,5 +1,6 @@
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { companies as demoCompanies } from '@/lib/store'
+import { PLAN_CHECK_LIMITS, type SubscriptionPlan } from '@/lib/types'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -72,10 +73,12 @@ export async function POST(request: Request) {
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { ownerId: _ignored, owner_id: _ignored2, ...rest } = body
+    const plan = (rest.subscription_plan ?? 'free') as SubscriptionPlan
+    const checksRemaining = PLAN_CHECK_LIMITS[plan] ?? PLAN_CHECK_LIMITS.free
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('companies')
-      .insert({ ...rest, owner_id: user.id })
+      .insert({ ...rest, owner_id: user.id, checks_remaining: checksRemaining, checks_used: 0 })
       .select()
       .single()
     if (error) return Response.json({ error: error.message }, { status: 500 })
