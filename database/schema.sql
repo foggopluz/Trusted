@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   bio                     TEXT,
   member_since            TEXT,
   trust_score             INTEGER     DEFAULT 0,
+  privacy_settings        JSONB       DEFAULT '{}',  -- see lib/privacy.ts for shape
   created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
