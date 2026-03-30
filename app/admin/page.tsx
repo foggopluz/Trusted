@@ -13,7 +13,7 @@ import {
   FileEdit, UserX, UserCheck,
 } from 'lucide-react'
 
-type Tab = 'queue' | 'changes' | 'users' | 'analytics' | 'scoring'
+type Tab = 'queue' | 'changes' | 'users' | 'analytics' | 'scoring' | 'disputes'
 
 const stats = [
   {
@@ -165,6 +165,32 @@ export default function AdminPage() {
     }
   }
 
+  // Disputes
+  const [disputes, setDisputes] = useState<{
+    id: string; credential_id: string; filed_by: string; reason: string
+    status: string; resolution_note?: string; created_at: string
+  }[]>([])
+  const [disputesLoaded, setDisputesLoaded] = useState(false)
+
+  useEffect(() => {
+    if (tab !== 'disputes' || disputesLoaded) return
+    fetch('/api/disputes?all=1')
+      .then(r => r.json())
+      .then(({ disputes: d }) => { setDisputes(d ?? []); setDisputesLoaded(true) })
+      .catch(() => setDisputesLoaded(true))
+  }, [tab, disputesLoaded])
+
+  async function handleDisputeAction(id: string, action: 'resolved' | 'dismissed', note: string) {
+    const res = await fetch('/api/disputes', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action, resolutionNote: note }),
+    })
+    if (res.ok) {
+      setDisputes(d => d.map(x => x.id === id ? { ...x, status: action } : x))
+    }
+  }
+
   // Admin action helpers
   async function handleVerificationApprove(id: string, idx: number) {
     setQueue(q => q.map((x, i) => i === idx ? { ...x, decision: 'approved' as const, showNoteInput: false } : x))
@@ -215,6 +241,7 @@ export default function AdminPage() {
     { id: 'users',    label: 'User Management' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'scoring',  label: 'Scoring Config' },
+    { id: 'disputes', label: 'Disputes' },
   ]
 
   return (
@@ -786,9 +813,82 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
+
+            {tab === 'disputes' && (
+              <div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', marginBottom: 18 }}>
+                  Open Disputes ({disputes.filter(d => d.status === 'open').length})
+                </h3>
+                {disputes.length === 0 ? (
+                  <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>No disputes filed yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {disputes.map(d => (
+                      <DisputeRow key={d.id} dispute={d} onAction={handleDisputeAction} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function DisputeRow({ dispute, onAction }: {
+  dispute: { id: string; credential_id: string; filed_by: string; reason: string; status: string; created_at: string }
+  onAction: (id: string, action: 'resolved' | 'dismissed', note: string) => Promise<void>
+}) {
+  const [note, setNote]       = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function act(action: 'resolved' | 'dismissed') {
+    setLoading(true)
+    await onAction(dispute.id, action, note)
+    setLoading(false)
+  }
+
+  return (
+    <div className="card" style={{ padding: '16px 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
+            Credential: <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>{dispute.credential_id}</span>
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-mid)', marginBottom: 0 }}>Filed by: {dispute.filed_by}</p>
+        </div>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+          background: dispute.status === 'open' ? 'var(--risk-med-bg)' : 'var(--surface-2)',
+          color: dispute.status === 'open' ? 'var(--risk-med)' : 'var(--text-muted)',
+          textTransform: 'uppercase', letterSpacing: '.04em',
+        }}>
+          {dispute.status}
+        </span>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--text)', background: 'var(--surface-2)', borderRadius: 6, padding: '8px 12px', marginBottom: dispute.status === 'open' ? 12 : 0 }}>
+        {dispute.reason}
+      </p>
+      {dispute.status === 'open' && (
+        <div>
+          <input
+            placeholder="Resolution note (optional)"
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 8, boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => act('resolved')} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 16px', borderRadius: 6, border: 'none', background: 'var(--risk-low-bg)', color: 'var(--risk-low)', cursor: 'pointer' }}>
+              Mark Resolved
+            </button>
+            <button onClick={() => act('dismissed')} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 16px', borderRadius: 6, border: 'none', background: 'var(--surface-2)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

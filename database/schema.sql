@@ -103,6 +103,28 @@ CREATE TABLE IF NOT EXISTS public.endorsements (
   UNIQUE (endorser_id, subject_id)
 );
 
+-- ─── Disputes ─────────────────────────────────────────────────────────────────
+-- Filed by credential subjects against credentials they believe are incorrect.
+CREATE TABLE IF NOT EXISTS public.disputes (
+  id              UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  credential_id   UUID        REFERENCES public.credentials(id) ON DELETE CASCADE NOT NULL,
+  filed_by        UUID        REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  reason          TEXT        NOT NULL,
+  evidence_url    TEXT,                             -- optional supporting document (storage path)
+  status          TEXT        DEFAULT 'open',       -- 'open' | 'resolved' | 'dismissed'
+  resolution_note TEXT,
+  resolved_by     UUID        REFERENCES auth.users(id) ON DELETE SET NULL,
+  resolved_at     TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.disputes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "disputes_select_involved" ON public.disputes FOR SELECT
+  USING (auth.uid() = filed_by OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY "disputes_insert_own" ON public.disputes FOR INSERT WITH CHECK (auth.uid() = filed_by);
+CREATE POLICY "disputes_update_admin" ON public.disputes FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
 -- ─── Scoring Config ───────────────────────────────────────────────────────────
 -- Single-row table. Always UPDATE, never INSERT after initial seed.
 CREATE TABLE IF NOT EXISTS public.scoring_config (

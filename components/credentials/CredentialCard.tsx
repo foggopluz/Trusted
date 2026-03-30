@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { CheckCircle, XCircle, Clock, Briefcase, DollarSign, ThumbsUp, Shield, Award } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Briefcase, DollarSign, ThumbsUp, Shield, Award, AlertTriangle } from 'lucide-react'
 
 export interface CredentialRow {
   id: string
@@ -18,6 +18,7 @@ export interface CredentialRow {
 interface Props {
   credential: CredentialRow
   currentUserId?: string
+  isOwner?: boolean           // true when viewing own credentials
   onStatusChange?: (id: string, status: 'approved' | 'rejected') => void
 }
 
@@ -69,8 +70,13 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export default function CredentialCard({ credential, currentUserId, onStatusChange }: Props) {
+export default function CredentialCard({ credential, currentUserId, isOwner, onStatusChange }: Props) {
   const [loading, setLoading] = useState<'approve' | 'reject' | null>(null)
+  const [showDisputeForm, setShowDisputeForm] = useState(false)
+  const [disputeReason, setDisputeReason]     = useState('')
+  const [disputeLoading, setDisputeLoading]   = useState(false)
+  const [disputeDone, setDisputeDone]         = useState(false)
+  const [disputeError, setDisputeError]       = useState<string | null>(null)
 
   const type = TYPE_CONFIG[credential.type] ?? TYPE_CONFIG.identity
   const status = STATUS_CONFIG[credential.status] ?? STATUS_CONFIG.pending
@@ -78,6 +84,30 @@ export default function CredentialCard({ credential, currentUserId, onStatusChan
 
   const isIssuer = currentUserId && credential.issuer_id === currentUserId
   const canAct = isIssuer && credential.status === 'pending'
+
+  async function handleDispute() {
+    if (!disputeReason.trim()) return
+    setDisputeLoading(true)
+    setDisputeError(null)
+    try {
+      const res = await fetch('/api/disputes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId: credential.id, reason: disputeReason.trim() }),
+      })
+      if (!res.ok) {
+        const { error } = await res.json()
+        setDisputeError(error ?? 'Failed to file dispute')
+        return
+      }
+      setDisputeDone(true)
+      setShowDisputeForm(false)
+    } catch {
+      setDisputeError('Network error — please try again')
+    } finally {
+      setDisputeLoading(false)
+    }
+  }
 
   async function handleAction(action: 'approved' | 'rejected') {
     setLoading(action === 'approved' ? 'approve' : 'reject')
@@ -211,6 +241,57 @@ export default function CredentialCard({ credential, currentUserId, onStatusChan
             Reject
           </button>
         </div>
+      )}
+
+      {/* Dispute button — only for the credential's subject */}
+      {isOwner && credential.status === 'approved' && !disputeDone && (
+        <div style={{ marginTop: 12 }}>
+          {!showDisputeForm ? (
+            <button
+              onClick={() => setShowDisputeForm(true)}
+              style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}
+            >
+              <AlertTriangle style={{ width: 11, height: 11 }} />
+              Dispute this credential
+            </button>
+          ) : (
+            <div style={{ marginTop: 10, padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Dispute this credential</p>
+              <textarea
+                rows={3}
+                placeholder="Describe why this credential is incorrect…"
+                value={disputeReason}
+                onChange={e => setDisputeReason(e.target.value)}
+                style={{ width: '100%', resize: 'vertical', fontSize: 13, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              />
+              {disputeError && (
+                <p style={{ fontSize: 12, color: 'var(--risk-high)', margin: '6px 0 0' }}>{disputeError}</p>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  onClick={handleDispute}
+                  disabled={disputeLoading || !disputeReason.trim()}
+                  style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 6, border: 'none', background: 'var(--risk-high)', color: '#fff', cursor: disputeLoading ? 'not-allowed' : 'pointer', opacity: disputeLoading || !disputeReason.trim() ? 0.6 : 1 }}
+                >
+                  {disputeLoading ? 'Filing…' : 'File dispute'}
+                </button>
+                <button
+                  onClick={() => { setShowDisputeForm(false); setDisputeReason('') }}
+                  style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', color: 'var(--text-mid)', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {disputeDone && (
+        <p style={{ fontSize: 12, color: 'var(--risk-med)', marginTop: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <AlertTriangle style={{ width: 11, height: 11 }} />
+          Dispute filed — under admin review
+        </p>
       )}
 
       <style>{`
