@@ -2,6 +2,7 @@ import { trustChecks, companies, users } from '@/lib/store'
 import type { TrustCheck } from '@/lib/types'
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { sendTrustCheckRequest } from '@/lib/email'
+import { audit } from '@/lib/audit'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -138,6 +139,9 @@ export async function POST(request: Request) {
         }).catch(() => {})
       }
 
+      // Audit log
+      audit({ actorId: user.id, action: 'trust_check.create', targetType: 'trust_check', targetId: inserted.id, metadata: { companyId, subjectUserId: userId } }).catch(() => {})
+
       // Decrement checks_remaining, increment checks_used
       await serviceClient
         .from('companies')
@@ -239,6 +243,7 @@ export async function PATCH(request: Request) {
       .update({ consent_status: status })
       .eq('id', id)
     if (error) return Response.json({ error: error.message }, { status: 500 })
+    audit({ actorId: user.id, action: `trust_check.${status}`, targetType: 'trust_check', targetId: id }).catch(() => {})
     return Response.json({ ok: true })
   } catch {
     return Response.json({ error: 'Failed to update trust check' }, { status: 500 })

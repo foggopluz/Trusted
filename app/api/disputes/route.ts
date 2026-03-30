@@ -1,6 +1,7 @@
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { users } from '@/lib/store'
 import { sendDisputeResolved } from '@/lib/email'
+import { audit } from '@/lib/audit'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -182,6 +183,7 @@ export async function PATCH(request: Request) {
       .eq('id', id)
 
     if (error) return Response.json({ error: error.message }, { status: 500 })
+    audit({ actorId: user.id, action: `admin.dispute.${action}`, targetType: 'dispute', targetId: id, metadata: { resolutionNote } }).catch(() => {})
 
     // Notify the filer
     if (dispute?.filed_by) {

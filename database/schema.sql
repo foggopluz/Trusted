@@ -103,6 +103,29 @@ CREATE TABLE IF NOT EXISTS public.endorsements (
   UNIQUE (endorser_id, subject_id)
 );
 
+-- ─── Audit Logs ───────────────────────────────────────────────────────────────
+-- Append-only table. Never UPDATE or DELETE rows.
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  actor_id    UUID        REFERENCES auth.users(id) ON DELETE SET NULL,
+  action      TEXT        NOT NULL,  -- e.g. 'trust_check.create', 'admin.verify.approve'
+  target_type TEXT,                  -- e.g. 'trust_check', 'credential', 'profile'
+  target_id   TEXT,
+  metadata    JSONB       DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+-- Admins can read all; actors can read their own
+CREATE POLICY "audit_select_admin" ON public.audit_logs FOR SELECT
+  USING (
+    auth.uid() = actor_id OR
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+-- Only server-side (service role) can insert — no client inserts
+CREATE POLICY "audit_insert_service" ON public.audit_logs FOR INSERT
+  WITH CHECK (false);  -- enforced via service role only
+
 -- ─── Disputes ─────────────────────────────────────────────────────────────────
 -- Filed by credential subjects against credentials they believe are incorrect.
 CREATE TABLE IF NOT EXISTS public.disputes (

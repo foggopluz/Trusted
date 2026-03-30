@@ -1,6 +1,7 @@
 import { pendingVerifications, users, companies } from '@/lib/store'
 import { createServerClient } from '@/lib/supabase-server'
 import { sendVerificationApproved, sendVerificationRejected } from '@/lib/email'
+import { audit } from '@/lib/audit'
 
 export async function PATCH(request: Request) {
   try {
@@ -55,6 +56,7 @@ export async function PATCH(request: Request) {
       }
     }
 
+    audit({ actorId: caller.id, action: `admin.verify.${action}`, targetType: 'verification', targetId: id, metadata: { note: note ?? null } }).catch(() => {})
     return Response.json({ ok: true, action, note: note ?? null })
   } catch {
     return Response.json({ error: 'Failed to process verification' }, { status: 500 })
