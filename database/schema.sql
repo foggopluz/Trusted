@@ -103,6 +103,28 @@ CREATE TABLE IF NOT EXISTS public.endorsements (
   UNIQUE (endorser_id, subject_id)
 );
 
+-- ─── API Keys ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.api_keys (
+  id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id  UUID        REFERENCES public.companies(id) ON DELETE CASCADE NOT NULL,
+  key_hash    TEXT        NOT NULL UNIQUE,  -- SHA-256 hash of the raw key
+  key_prefix  TEXT        NOT NULL,         -- First 8 chars for display (e.g. "tn_live_ab")
+  name        TEXT        NOT NULL,         -- Human label (e.g. "Production key")
+  is_active   BOOLEAN     DEFAULT true,
+  last_used_at TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.api_keys ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "api_keys_select_own" ON public.api_keys FOR SELECT
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "api_keys_insert_own" ON public.api_keys FOR INSERT
+  WITH CHECK (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "api_keys_update_own" ON public.api_keys FOR UPDATE
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+CREATE POLICY "api_keys_delete_own" ON public.api_keys FOR DELETE
+  USING (company_id IN (SELECT id FROM public.companies WHERE owner_id = auth.uid()));
+
 -- ─── Audit Logs ───────────────────────────────────────────────────────────────
 -- Append-only table. Never UPDATE or DELETE rows.
 CREATE TABLE IF NOT EXISTS public.audit_logs (
