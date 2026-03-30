@@ -103,6 +103,24 @@ CREATE TABLE IF NOT EXISTS public.endorsements (
   UNIQUE (endorser_id, subject_id)
 );
 
+-- ─── Scoring Config ───────────────────────────────────────────────────────────
+-- Single-row table. Always UPDATE, never INSERT after initial seed.
+CREATE TABLE IF NOT EXISTS public.scoring_config (
+  id               INTEGER     PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  factor_weights   JSONB       NOT NULL DEFAULT '{"identity":0.15,"financial":0.25,"work_history":0.25,"endorsement":0.15,"skill":0.05}',
+  risk_thresholds  JSONB       NOT NULL DEFAULT '{"low":700,"medium":450}',
+  updated_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_by       UUID        REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+-- Seed default row
+INSERT INTO public.scoring_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.scoring_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "scoring_config_select_all" ON public.scoring_config FOR SELECT USING (true);
+CREATE POLICY "scoring_config_update_admin" ON public.scoring_config FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
 -- ─── Storage Bucket ───────────────────────────────────────────────────────────
 -- Create via Supabase Dashboard → Storage → New Bucket
 -- Name: "documents" | Public: false

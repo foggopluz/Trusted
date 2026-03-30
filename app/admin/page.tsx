@@ -1,12 +1,12 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
 import {
   users, companies, credentials, pendingVerifications,
   changeRequests, trustChecks,
 } from '@/lib/store'
-import { computeScore, getScoreLabel } from '@/lib/scoring'
+import { computeScore, getScoreLabel, DEFAULT_FACTOR_WEIGHTS, DEFAULT_RISK_THRESHOLDS } from '@/lib/scoring'
 import {
   CheckCircle, XCircle, Clock, Users, Building2, Shield,
   BarChart3, Sliders, AlertTriangle, Search, AlertCircle,
@@ -121,13 +121,48 @@ export default function AdminPage() {
   )
 
   // Scoring config
-  const [weights, setWeights] = useState(defaultWeights)
-  const [thresholds, setThresholds] = useState({ low: 700, medium: 450 })
+  const [weights, setWeights] = useState<Record<string, number>>(
+    Object.fromEntries(Object.entries(DEFAULT_FACTOR_WEIGHTS).map(([k, v]) => [k, Math.round(v * 100)]))
+  )
+  const [thresholds, setThresholds] = useState(DEFAULT_RISK_THRESHOLDS)
   const [configSaved, setConfigSaved] = useState(false)
+  const [configError, setConfigError] = useState<string | null>(null)
 
-  function saveConfig() {
-    setConfigSaved(true)
-    setTimeout(() => setConfigSaved(false), 3000)
+  useEffect(() => {
+    fetch('/api/admin/scoring-config')
+      .then(r => r.json())
+      .then(({ config }) => {
+        if (config?.factorWeights) {
+          setWeights(Object.fromEntries(
+            Object.entries(config.factorWeights as Record<string, number>).map(([k, v]) => [k, Math.round(v * 100)])
+          ))
+        }
+        if (config?.riskThresholds) setThresholds(config.riskThresholds)
+      })
+      .catch(() => { /* use defaults */ })
+  }, [])
+
+  async function saveConfig() {
+    setConfigError(null)
+    const factorWeights = Object.fromEntries(
+      Object.entries(weights).map(([k, v]) => [k, v / 100])
+    )
+    try {
+      const res = await fetch('/api/admin/scoring-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ factorWeights, riskThresholds: thresholds }),
+      })
+      if (!res.ok) {
+        const { error } = await res.json()
+        setConfigError(error ?? 'Failed to save')
+        return
+      }
+      setConfigSaved(true)
+      setTimeout(() => setConfigSaved(false), 3000)
+    } catch {
+      setConfigError('Network error — could not save config')
+    }
   }
 
   // Admin action helpers
@@ -741,6 +776,11 @@ export default function AdminPage() {
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--risk-low)', fontWeight: 500 }}>
                       <CheckCircle style={{ width: 15, height: 15 }} />
                       Configuration saved
+                    </span>
+                  )}
+                  {configError && (
+                    <span style={{ fontSize: 13, color: 'var(--risk-high)', fontWeight: 500 }}>
+                      {configError}
                     </span>
                   )}
                 </div>

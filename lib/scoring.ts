@@ -31,12 +31,22 @@ export interface SupabaseScoreResult {
   credentialCount: number
 }
 
-const FACTOR_WEIGHTS = {
+export const DEFAULT_FACTOR_WEIGHTS = {
   identity: 0.15,
   financial: 0.25,
   work_history: 0.25,
   endorsement: 0.15,
   skill: 0.05,
+}
+
+export const DEFAULT_RISK_THRESHOLDS = {
+  low: 700,
+  medium: 450,
+}
+
+export interface ScoringConfig {
+  factorWeights: typeof DEFAULT_FACTOR_WEIGHTS
+  riskThresholds: typeof DEFAULT_RISK_THRESHOLDS
 }
 
 const MAX_DISPUTE_PENALTY = 0.20
@@ -64,7 +74,14 @@ function getProvenance(credential: Credential): number {
   return 0.70
 }
 
-export function computeScore(credentials: Credential[], disputeCount = 0): ScoreResult {
+export function computeScore(
+  credentials: Credential[],
+  disputeCount = 0,
+  config?: Partial<ScoringConfig>,
+): ScoreResult {
+  const weights = config?.factorWeights ?? DEFAULT_FACTOR_WEIGHTS
+  const thresholds = config?.riskThresholds ?? DEFAULT_RISK_THRESHOLDS
+
   const active = credentials.filter(c => c.status === 'active' && !isExpired(c.expiresAt))
 
   let identityRaw = 0
@@ -73,7 +90,7 @@ export function computeScore(credentials: Credential[], disputeCount = 0): Score
   let networkRaw = 0
 
   for (const cred of active) {
-    const weight = FACTOR_WEIGHTS[cred.credentialType] ?? 0.05
+    const weight = weights[cred.credentialType] ?? 0.05
     const provenance = getProvenance(cred)
     const recency = recencyMultiplier(cred.issuedAt)
     const contribution = weight * provenance * recency * cred.confidence
@@ -93,10 +110,10 @@ export function computeScore(credentials: Credential[], disputeCount = 0): Score
   const penalisedRaw = totalRaw * (1 - disputePenalty)
   const score = Math.round(Math.min(penalisedRaw * 1000, 1000))
 
-  // Risk tier
+  // Risk tier (uses configurable thresholds)
   let riskTier: RiskTier
-  if (score >= 700) riskTier = 'low'
-  else if (score >= 450) riskTier = 'medium'
+  if (score >= thresholds.low) riskTier = 'low'
+  else if (score >= thresholds.medium) riskTier = 'medium'
   else riskTier = 'high'
 
   // Confidence
