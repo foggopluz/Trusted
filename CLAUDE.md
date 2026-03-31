@@ -60,6 +60,39 @@ Only `granted` checks snapshot score/tier/shared credentials.
 
 ---
 
+## Security Checklist — Apply to Every Route
+
+Every API route must be reviewed against this list before it is considered done:
+
+### Auth
+- [ ] Is there a session auth check (`createServerClient()` + `getUser()`) OR API key check (`validateApiKey()`)? Both paths?
+- [ ] For admin-only actions: query `profiles.role` from **Supabase** via `createServiceClient()` — never use the in-memory `users` store for role checks in production.
+- [ ] For user-scoped data (GET by userId): enforce `userId === session user.id` unless caller is admin or API key.
+
+### Input validation
+- [ ] String enum fields (type, status, role, action, country, provider) validated against a known `Set` before DB write.
+- [ ] No `...rest` or `...updates` passed directly to Supabase — always use an explicit field allowlist.
+- [ ] User-controlled strings interpolated into HTML (emails, responses) wrapped in `escHtml()`.
+
+### Ownership
+- [ ] When operating on a resource by ID, verify the resource belongs to the session user (no IDOR).
+- [ ] Credential status changes (approve/reject) are admin-only. Never allow the subject to update their own credential status.
+
+### Race conditions
+- [ ] Check-then-act sequences (balance checks, duplicate checks) must read and guard BEFORE the write, not after.
+
+### Credential status in scoring
+- `computeScore()` accepts both `'active'` AND `'approved'` as active credential statuses (DB stores `'approved'`; the TS type also has `'active'` for legacy reasons). Never filter for only one.
+
+### VC signing
+- `VC_PROOF_SECRET` has no default — `issueVC()` throws if absent. Never add a fallback default for this variable.
+
+### RLS
+- Credential UPDATE must stay as `USING (false)` — service role only. Do not restore `creds_update_own`.
+- All new tables: RLS enabled, explicit policies for every operation (SELECT/INSERT/UPDATE/DELETE).
+
+---
+
 ## Key Files
 
 | File | Role |
@@ -135,7 +168,7 @@ Webhook payloads are HMAC-SHA256 signed. Integrators must verify:
 | `RESEND_API_KEY` | Transactional email | (absent = console log) |
 | `EMAIL_FROM` | Sender address | `TrustNet <noreply@trustnet.app>` |
 | `NEXT_PUBLIC_APP_URL` | Base URL for email links | `https://trustnet.app` |
-| `VC_PROOF_SECRET` | HMAC signing secret for VCs | `dev-proof-secret-change-in-production` |
+| `VC_PROOF_SECRET` | HMAC signing secret for VCs | **REQUIRED — no default, throws if absent** |
 | `VC_ISSUER_DID` | DID for VC issuer | `did:trustnet:trustnet-platform` |
 | `SMILE_PARTNER_ID` | Gov ID verification | (absent = demo) |
 | `SMILE_API_KEY` | Gov ID verification | (absent = demo) |
