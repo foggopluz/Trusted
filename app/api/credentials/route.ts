@@ -84,15 +84,15 @@ export async function POST(request: Request) {
     }).then(assessment => {
       if (assessment.severity === 'high' || assessment.severity === 'medium') {
         // Audit the fraud signal so admins can investigate
-        supabase.from('audit_logs').insert({
+        void supabase.from('audit_logs').insert({
           actor_id:    user.id,
           action:      'fraud.signal_detected',
           target_type: 'credential',
           target_id:   data.id,
           metadata:    { severity: assessment.severity, score: assessment.score, signals: assessment.signals },
-        }).then(() => {})
+        })
       }
-    }).catch(() => {})
+    }, () => {})
 
     return Response.json({ credential: data }, { status: 201 })
   } catch {

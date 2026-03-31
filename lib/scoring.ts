@@ -82,7 +82,8 @@ export function computeScore(
   const weights = config?.factorWeights ?? DEFAULT_FACTOR_WEIGHTS
   const thresholds = config?.riskThresholds ?? DEFAULT_RISK_THRESHOLDS
 
-  const active = credentials.filter(c => (c.status === 'active' || c.status === 'approved') && !isExpired(c.expiresAt))
+  const ACTIVE_STATUSES = new Set(['active', 'approved'])
+  const active = credentials.filter(c => ACTIVE_STATUSES.has(c.status) && !isExpired(c.expiresAt))
 
   let identityRaw = 0
   let financialRaw = 0
