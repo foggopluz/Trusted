@@ -1,6 +1,9 @@
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { sendDisputeResolved } from '@/lib/email'
 import { audit } from '@/lib/audit'
+import { computeScoreFromSupabase, type SupabaseCredential } from '@/lib/scoring'
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -167,7 +170,7 @@ export async function PATCH(request: Request) {
 
     const { data: dispute } = await serviceClient
       .from('disputes')
-      .select('filed_by')
+      .select('filed_by, subject_id')
       .eq('id', id)
       .single()
 
@@ -188,16 +191,41 @@ export async function PATCH(request: Request) {
     if (dispute?.filed_by) {
       const { data: filerProfile } = await serviceClient
         .from('profiles').select('full_name, email').eq('id', dispute.filed_by).single()
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
       if (filerProfile?.email) {
-        sendDisputeResolved({
+        void sendDisputeResolved({
           toEmail: filerProfile.email,
-          toName: filerProfile.full_name,
+          toName: filerProfile.full_name ?? 'there',
           action: action as 'resolved' | 'dismissed',
           resolutionNote,
-          dashboardUrl: `${baseUrl}/dashboard`,
-        }).catch(() => {})
+          dashboardUrl: `${APP_URL}/dashboard`,
+        })
       }
+    }
+
+    // Trigger score recalculation for the subject
+    if (dispute?.subject_id) {
+      const subjectId = dispute.subject_id as string
+      void (async () => {
+        const { data: subjectProfile } = await serviceClient
+          .from('profiles')
+          .select('id_verification_status')
+          .eq('id', subjectId)
+          .single()
+        const { data: creds } = await serviceClient
+          .from('credentials')
+          .select('id, type, status, created_at, expires_at, rating')
+          .eq('user_id', subjectId)
+        if (creds) {
+          const result = computeScoreFromSupabase(
+            creds as SupabaseCredential[],
+            subjectProfile?.id_verification_status ?? 'unverified',
+          )
+          await serviceClient
+            .from('profiles')
+            .update({ trust_score: result.score })
+            .eq('id', subjectId)
+        }
+      })()
     }
 
     return Response.json({ ok: true })

@@ -4,6 +4,7 @@ import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { sendTrustCheckRequest } from '@/lib/email'
 import { audit } from '@/lib/audit'
 import { fireWebhookEvent } from '@/lib/webhooks'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -77,6 +78,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const ip = (request.headers.get('x-forwarded-for')?.split(',')[0].trim()) ?? '127.0.0.1'
+  const rl = checkRateLimit(`trust-check:${ip}`, 20, 60_000)
+  if (!rl.allowed) {
+    return Response.json({ error: 'Too many requests' }, { status: 429 })
+  }
+
   let body: { companyId?: string; userId?: string }
   try {
     body = await request.json()

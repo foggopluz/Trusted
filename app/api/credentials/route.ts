@@ -1,9 +1,11 @@
 import { createServiceClient, createServerClient } from '@/lib/supabase-server'
 import { credentials as demoCredentials } from '@/lib/store'
 import { issueVC, VC_TYPE_MAP } from '@/lib/vc'
-import { sendCredentialIssued } from '@/lib/email'
+import { sendCredentialIssued, sendVerificationRejected } from '@/lib/email'
 import { fireWebhookEvent } from '@/lib/webhooks'
 import { assessFraudRisk } from '@/lib/fraud'
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -13,12 +15,18 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const type = searchParams.get('type')
 
+  const limitParam  = parseInt(searchParams.get('limit')  ?? '20', 10)
+  const offsetParam = parseInt(searchParams.get('offset') ?? '0',  10)
+  const limit  = Math.min(isNaN(limitParam)  ? 20 : Math.max(1, limitParam),  100)
+  const offset = isNaN(offsetParam) ? 0 : Math.max(0, offsetParam)
+
   if (IS_DEMO_MODE) {
     const userId = searchParams.get('userId')
     let result = demoCredentials
     if (userId) result = result.filter(c => c.subjectUserId === userId)
     if (type)   result = result.filter(c => c.credentialType === type)
-    return Response.json({ credentials: result })
+    const total = result.length
+    return Response.json({ credentials: result.slice(offset, offset + limit), total, limit, offset })
   }
 
   const authClient = await createServerClient()
@@ -27,11 +35,13 @@ export async function GET(request: Request) {
 
   try {
     const supabase = createServiceClient()
-    let query = supabase.from('credentials').select('*').eq('user_id', user.id)
-    if (type) query = query.eq('type', type)
-    const { data, error } = await query.order('created_at', { ascending: false })
+    let baseQuery = supabase.from('credentials').select('*', { count: 'exact' }).eq('user_id', user.id)
+    if (type) baseQuery = baseQuery.eq('type', type)
+    const { data, error, count } = await baseQuery
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
     if (error) return Response.json({ error: error.message }, { status: 500 })
-    return Response.json({ credentials: data ?? [] })
+    return Response.json({ credentials: data ?? [], total: count ?? 0, limit, offset })
   } catch {
     return Response.json({ error: 'Failed to fetch credentials' }, { status: 500 })
   }
@@ -115,34 +125,33 @@ export async function PATCH(request: Request) {
     const { data: callerProfile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
     if (callerProfile?.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 })
 
+    // Fetch the credential first (needed for both approve and reject paths)
+    const { data: cred } = await supabase.from('credentials').select('*').eq('id', id).single()
+
     // If approving, issue a W3C Verifiable Credential and store its proof hash
     let vcProofHash: string | null = null
-    if (status === 'approved') {
-      const { data: cred } = await supabase.from('credentials').select('*').eq('id', id).single()
-      if (cred) {
-        const vcType = VC_TYPE_MAP[cred.type as string] ?? 'VerifiableCredential'
-        const vc = await issueVC({
-          credentialId: cred.id,
-          subjectUserId: cred.user_id,
-          credentialType: vcType,
-          claims: { type: cred.type, title: cred.title, issuerName: cred.issuer_name },
-          issuanceDate: new Date().toISOString(),
-          expirationDate: cred.expires_at ?? undefined,
-        })
-        vcProofHash = vc.proof.proofValue
+    if (status === 'approved' && cred) {
+      const vcType = VC_TYPE_MAP[cred.type as string] ?? 'VerifiableCredential'
+      const vc = await issueVC({
+        credentialId: cred.id,
+        subjectUserId: cred.user_id,
+        credentialType: vcType,
+        claims: { type: cred.type, title: cred.title, issuerName: cred.issuer_name },
+        issuanceDate: new Date().toISOString(),
+        expirationDate: cred.expires_at ?? undefined,
+      })
+      vcProofHash = vc.proof.proofValue
 
-        // Notify the subject
-        const { data: profile } = await supabase.from('profiles').select('full_name, email').eq('id', cred.user_id).single()
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'
-        if (profile?.email) {
-          sendCredentialIssued({
-            toEmail: profile.email,
-            toName: profile.full_name,
-            credentialTitle: cred.title ?? vcType,
-            issuerName: cred.issuer_name ?? 'TrustNet',
-            credentialsUrl: `${baseUrl}/credentials`,
-          }).catch(() => {})
-        }
+      // Notify the subject
+      const { data: subject } = await supabase.from('profiles').select('full_name, email').eq('id', cred.user_id).single()
+      if (subject?.email) {
+        void sendCredentialIssued({
+          toEmail: subject.email,
+          toName: subject.full_name ?? 'there',
+          credentialTitle: cred.title ?? vcType,
+          issuerName: cred.issuer_name ?? 'TrustNet',
+          credentialsUrl: `${APP_URL}/credentials`,
+        })
       }
     }
 
@@ -151,6 +160,19 @@ export async function PATCH(request: Request) {
 
     const { error } = await supabase.from('credentials').update(updatePayload).eq('id', id)
     if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    // Notify the subject on rejection
+    if (status === 'rejected' && cred) {
+      const { data: subject } = await supabase.from('profiles').select('full_name, email').eq('id', cred.user_id).single()
+      if (subject?.email) {
+        void sendVerificationRejected({
+          toEmail: subject.email,
+          toName: subject.full_name ?? 'there',
+          note: body.resolution_note ?? undefined,
+          dashboardUrl: `${APP_URL}/dashboard`,
+        })
+      }
+    }
 
     // Fire webhook events (fire-and-forget)
     const event = status === 'approved' ? 'credential.approved' : status === 'rejected' ? 'credential.rejected' : null
