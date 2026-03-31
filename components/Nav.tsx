@@ -17,6 +17,7 @@ export default function Nav({ transparent = false }: NavProps) {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [userInitials, setUserInitials] = useState('')
   const [userName,     setUserName]     = useState('')
+  const [isAdmin,      setIsAdmin]      = useState(false)
 
   useEffect(() => {
     if (!transparent) return
@@ -37,11 +38,18 @@ export default function Nav({ transparent = false }: NavProps) {
     // Check real Supabase session
     if (!IS_DEMO_MODE) {
       const client = createSupabaseBrowserClient()
-      client.auth.getSession().then(({ data: { session } }) => {
+      client.auth.getSession().then(async ({ data: { session } }) => {
         if (session?.user) {
           const user = session.user
           const name = (user.user_metadata?.full_name as string | undefined) || user.email || 'Me'
           applySession(name)
+          // Fetch role to gate admin nav link
+          const { data: profile } = await client
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+          setIsAdmin(profile?.role === 'admin')
         }
       }).catch(() => undefined)
     }
@@ -64,7 +72,7 @@ export default function Nav({ transparent = false }: NavProps) {
   const navLinks = [
     { href: '/lookup',    label: 'Lookup' },
     { href: '/dashboard', label: 'My Account' },
-    { href: '/admin',     label: 'Admin' },
+    ...(isAdmin ? [{ href: '/admin', label: 'Admin' }] : []),
   ]
 
   return (
