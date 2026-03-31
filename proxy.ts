@@ -8,7 +8,7 @@ const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isProtected = PROTECTED_PATHS.some(p => pathname.startsWith(p))
   if (!isProtected) return NextResponse.next({ request })
