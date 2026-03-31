@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const PROTECTED_PATHS = ['/dashboard', '/business/dashboard', '/profile/edit']
+const PROTECTED_PATHS = ['/dashboard', '/business/dashboard', '/profile/edit', '/admin']
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -56,5 +56,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/business/dashboard/:path*', '/profile/edit/:path*'],
+  matcher: ['/dashboard/:path*', '/business/dashboard/:path*', '/profile/edit/:path*', '/admin/:path*'],
 }

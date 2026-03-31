@@ -241,7 +241,7 @@ CREATE POLICY "webhook_deliveries_select_own" ON public.webhook_deliveries FOR S
 -- Single-row table. Always UPDATE, never INSERT after initial seed.
 CREATE TABLE IF NOT EXISTS public.scoring_config (
   id               INTEGER     PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  factor_weights   JSONB       NOT NULL DEFAULT '{"identity":0.15,"financial":0.25,"work_history":0.25,"endorsement":0.15,"skill":0.05}',
+  factor_weights   JSONB       NOT NULL DEFAULT '{"identity":0.15,"financial":0.25,"work_history":0.25,"endorsement":0.15,"skill":0.20}',
   risk_thresholds  JSONB       NOT NULL DEFAULT '{"low":700,"medium":450}',
   updated_at       TIMESTAMPTZ DEFAULT NOW(),
   updated_by       UUID        REFERENCES auth.users(id) ON DELETE SET NULL

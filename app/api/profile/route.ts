@@ -29,9 +29,14 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single()
     if (error) return Response.json({ error: error.message }, { status: 500 })
 
+    // Fetch the caller's role separately — never use the target's role to determine viewer permissions
+    const { data: callerProfile } = user
+      ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+      : { data: null }
+
     const viewer: ViewerContext = {
       isOwner:    user?.id === userId,
-      isAdmin:    data?.role === 'admin' && !!user,
+      isAdmin:    callerProfile?.role === 'admin',
       isVerified: !!user,
     }
 

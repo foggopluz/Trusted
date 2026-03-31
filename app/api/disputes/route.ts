@@ -170,7 +170,7 @@ export async function PATCH(request: Request) {
 
     const { data: dispute } = await serviceClient
       .from('disputes')
-      .select('filed_by, subject_id')
+      .select('filed_by, credential_id, credentials(user_id)')
       .eq('id', id)
       .single()
 
@@ -202,9 +202,10 @@ export async function PATCH(request: Request) {
       }
     }
 
-    // Trigger score recalculation for the subject
-    if (dispute?.subject_id) {
-      const subjectId = dispute.subject_id as string
+    // Trigger score recalculation for the subject (credential owner)
+    const credRow = Array.isArray(dispute?.credentials) ? dispute.credentials[0] : dispute?.credentials
+    const subjectId = (credRow as { user_id: string } | null)?.user_id
+    if (subjectId) {
       void (async () => {
         const { data: subjectProfile } = await serviceClient
           .from('profiles')
