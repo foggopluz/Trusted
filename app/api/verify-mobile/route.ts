@@ -6,6 +6,7 @@ import { createServerClient } from '@/lib/supabase-server'
 import { validateApiKey } from '@/lib/api-auth'
 import { verifyMobileMoneyAccount, PROVIDER_COUNTRIES, type MobileMoneyProvider } from '@/lib/mobile-money'
 import { audit } from '@/lib/audit'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -15,6 +16,19 @@ const VALID_PROVIDERS = new Set<string>(['mpesa', 'mtn_momo'])
 const E164_RE = /^\+[1-9]\d{7,14}$/
 
 export async function POST(request: Request) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? '127.0.0.1'
+  const rl = checkRateLimit(`verify-mobile:${ip}`, 10, 60_000)
+  if (!rl.allowed) {
+    return Response.json({ error: 'Too many requests' }, {
+      status: 429,
+      headers: {
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': String(rl.resetAt),
+        'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)),
+      },
+    })
+  }
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   let actorId: string | undefined
 
@@ -73,7 +87,13 @@ export async function POST(request: Request) {
       metadata:   { provider, confidence: result.confidence, source: result.source },
     }).catch(() => {})
 
-    return Response.json(result, { status: result.verified ? 200 : 422 })
+    return Response.json(result, {
+      status: result.verified ? 200 : 422,
+      headers: {
+        'X-RateLimit-Remaining': String(rl.remaining),
+        'X-RateLimit-Reset': String(rl.resetAt),
+      },
+    })
   } catch {
     return Response.json({ error: 'Verification service unavailable' }, { status: 500 })
   }

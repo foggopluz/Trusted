@@ -6,6 +6,7 @@ import { createServerClient } from '@/lib/supabase-server'
 import { validateApiKey } from '@/lib/api-auth'
 import { verifyGovernmentId, SUPPORTED_ID_TYPES, type GovIdCountry, type GovIdType } from '@/lib/gov-id'
 import { audit } from '@/lib/audit'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -14,6 +15,19 @@ const IS_DEMO_MODE =
 const VALID_COUNTRIES = new Set<string>(['TZ', 'KE', 'NG', 'GH', 'UG', 'RW'])
 
 export async function POST(request: Request) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? '127.0.0.1'
+  const rl = checkRateLimit(`verify-id:${ip}`, 10, 60_000)
+  if (!rl.allowed) {
+    return Response.json({ error: 'Too many requests' }, {
+      status: 429,
+      headers: {
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': String(rl.resetAt),
+        'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)),
+      },
+    })
+  }
+
   // ── Auth ─────────────────────────────────────────────────────────────────
   let userId: string | null = null
 
@@ -82,7 +96,13 @@ export async function POST(request: Request) {
 
     // Never return the raw Smile Identity payload to callers
     const { raw: _raw, ...safeResult } = result
-    return Response.json(safeResult, { status: result.verified ? 200 : 422 })
+    return Response.json(safeResult, {
+      status: result.verified ? 200 : 422,
+      headers: {
+        'X-RateLimit-Remaining': String(rl.remaining),
+        'X-RateLimit-Reset': String(rl.resetAt),
+      },
+    })
   } catch {
     return Response.json({ error: 'Verification service unavailable' }, { status: 500 })
   }
