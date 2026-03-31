@@ -36,7 +36,7 @@ export const DEFAULT_FACTOR_WEIGHTS = {
   financial: 0.25,
   work_history: 0.25,
   endorsement: 0.15,
-  skill: 0.05,
+  skill: 0.20,
 }
 
 export const DEFAULT_RISK_THRESHOLDS = {
@@ -82,7 +82,7 @@ export function computeScore(
   const weights = config?.factorWeights ?? DEFAULT_FACTOR_WEIGHTS
   const thresholds = config?.riskThresholds ?? DEFAULT_RISK_THRESHOLDS
 
-  const active = credentials.filter(c => c.status === 'active' && !isExpired(c.expiresAt))
+  const active = credentials.filter(c => (c.status === 'active' || c.status === 'approved') && !isExpired(c.expiresAt))
 
   let identityRaw = 0
   let financialRaw = 0

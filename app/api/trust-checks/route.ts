@@ -36,7 +36,32 @@ export async function GET(request: Request) {
   }
 
   try {
+    if (!companyId && !userId) {
+      return Response.json({ error: 'At least one of companyId or userId is required' }, { status: 400 })
+    }
+
+    const supabase = await createServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
     const serviceClient = createServiceClient()
+
+    if (companyId) {
+      const { data: company, error: companyError } = await serviceClient
+        .from('companies')
+        .select('owner_id')
+        .eq('id', companyId)
+        .single()
+      if (companyError || !company) {
+        return Response.json({ error: 'Company not found' }, { status: 404 })
+      }
+      if (company.owner_id !== user.id) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    } else if (userId !== user.id) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     let query = serviceClient.from('trust_checks').select('*')
     if (companyId) query = query.eq('requester_company_id', companyId)
     if (userId)    query = query.eq('subject_id', userId)
@@ -103,6 +128,16 @@ export async function POST(request: Request) {
         return Response.json({ error: 'A pending trust check already exists for this user' }, { status: 409 })
       }
 
+      // Enforce plan check limit before inserting
+      const { data: checkLimit } = await serviceClient
+        .from('companies')
+        .select('checks_remaining, checks_used')
+        .eq('id', companyId)
+        .single()
+      if (!checkLimit || checkLimit.checks_remaining <= 0) {
+        return Response.json({ error: 'Check limit reached for your plan. Please upgrade to continue.' }, { status: 402 })
+      }
+
       const { data: inserted, error: insertError } = await serviceClient
         .from('trust_checks')
         .insert({
@@ -116,16 +151,6 @@ export async function POST(request: Request) {
         .single()
 
       if (insertError) return Response.json({ error: insertError.message }, { status: 500 })
-
-      // Enforce plan check limit
-      const { data: checkLimit } = await serviceClient
-        .from('companies')
-        .select('checks_remaining, checks_used')
-        .eq('id', companyId)
-        .single()
-      if (checkLimit && checkLimit.checks_remaining <= 0) {
-        return Response.json({ error: 'Check limit reached for your plan. Please upgrade to continue.' }, { status: 402 })
-      }
 
       // Notify subject
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://trustnet.app'

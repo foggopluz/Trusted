@@ -1,5 +1,4 @@
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
-import { users } from '@/lib/store'
 import { sendDisputeResolved } from '@/lib/email'
 import { audit } from '@/lib/audit'
 
@@ -37,8 +36,8 @@ export async function GET(request: Request) {
     let query = serviceClient.from('disputes').select('*').order('created_at', { ascending: false })
 
     // Admin can fetch all; regular users only see their own
-    const profile = users.find(u => u.id === user.id)
-    const isAdmin = profile?.role === 'admin'
+    const { data: callerProfile } = await serviceClient.from('profiles').select('role').eq('id', user.id).single()
+    const isAdmin = callerProfile?.role === 'admin'
 
     if (!isAdmin) {
       query = query.eq('filed_by', user.id)

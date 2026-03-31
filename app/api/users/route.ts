@@ -1,4 +1,4 @@
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { users as demoUsers } from '@/lib/store'
 
 const IS_DEMO_MODE =
@@ -26,10 +26,14 @@ export async function GET(request: Request) {
   }
 
   try {
+    const authClient = await createServerClient()
+    const { data: { user } } = await authClient.auth.getUser()
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
     const supabase = createServiceClient()
     let query = supabase
       .from('profiles')
-      .select('*')
+      .select('id, full_name, country, city, profession, account_type, trust_score, id_verification_status, member_since, bio, did')
       .neq('role', 'admin')
       .eq('id_verification_status', 'verified')
 

@@ -44,6 +44,11 @@ export async function POST(request: Request) {
 
     if (!type) return Response.json({ error: 'type is required' }, { status: 400 })
 
+    const VALID_TYPES = new Set(['identity', 'financial', 'work_history', 'endorsement', 'skill'])
+    if (!VALID_TYPES.has(type)) {
+      return Response.json({ error: `type must be one of: ${[...VALID_TYPES].join(', ')}` }, { status: 400 })
+    }
+
     if (IS_DEMO_MODE) {
       const newCredential = {
         id: `cred-${Date.now()}`,
@@ -85,7 +90,7 @@ export async function POST(request: Request) {
           target_type: 'credential',
           target_id:   data.id,
           metadata:    { severity: assessment.severity, score: assessment.score, signals: assessment.signals },
-        }).then(() => {}).catch(() => {})
+        }).then(() => {})
       }
     }).catch(() => {})
 
@@ -102,7 +107,13 @@ export async function PATCH(request: Request) {
     if (!id || !status) return Response.json({ error: 'id and status required' }, { status: 400 })
     if (IS_DEMO_MODE)   return Response.json({ ok: true })
 
+    const authClient = await createServerClient()
+    const { data: { user } } = await authClient.auth.getUser()
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
     const supabase = createServiceClient()
+    const { data: callerProfile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    if (callerProfile?.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 })
 
     // If approving, issue a W3C Verifiable Credential and store its proof hash
     let vcProofHash: string | null = null

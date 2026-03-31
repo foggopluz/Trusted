@@ -9,7 +9,7 @@
 // For production: replace HMAC proof with real Ed25519 signing using the
 // Web Crypto API and store keypairs in a KMS or Supabase Vault.
 
-const PROOF_SECRET = process.env.VC_PROOF_SECRET ?? 'dev-proof-secret-change-in-production'
+const PROOF_SECRET = process.env.VC_PROOF_SECRET
 const ISSUER_DID   = process.env.VC_ISSUER_DID   ?? 'did:trustnet:trustnet-platform'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ export interface VCVerificationResult {
 
 async function hmacSign(data: string): Promise<string> {
   const encoder  = new TextEncoder()
-  const keyData  = encoder.encode(PROOF_SECRET)
+  const keyData  = encoder.encode(PROOF_SECRET!)
   const msgData  = encoder.encode(data)
   const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const sig = await crypto.subtle.sign('HMAC', key, msgData)
@@ -76,6 +76,7 @@ export async function issueVC(opts: {
   issuanceDate?: string
   expirationDate?: string
 }): Promise<VerifiableCredential> {
+  if (!PROOF_SECRET) throw new Error('VC_PROOF_SECRET env var is required in production')
   const issuanceDate = opts.issuanceDate ?? new Date().toISOString()
   const subjectDid   = `did:trustnet:${opts.subjectUserId}`
 

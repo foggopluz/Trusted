@@ -1,6 +1,6 @@
 export type VerificationStatus = 'pending' | 'verified' | 'rejected'
 export type CredentialType = 'identity' | 'work_history' | 'endorsement' | 'financial' | 'skill'
-export type CredentialStatus = 'pending' | 'active' | 'revoked' | 'expired'
+export type CredentialStatus = 'pending' | 'active' | 'approved' | 'revoked' | 'expired'
 export type RiskTier = 'low' | 'medium' | 'high'
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
 export type UserRole = 'individual' | 'business' | 'admin'

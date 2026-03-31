@@ -5,6 +5,11 @@
 // Sign up at https://resend.com — free tier: 100 emails/day.
 // Add your verified sending domain and update FROM_ADDRESS below.
 
+function escHtml(s: string | null | undefined): string {
+  if (!s) return ''
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const FROM_ADDRESS   = process.env.EMAIL_FROM ?? 'TrustNet <noreply@trustnet.app>'
 const IS_EMAIL_ENABLED = !!RESEND_API_KEY
@@ -69,12 +74,12 @@ export async function sendTrustCheckRequest(opts: {
 }): Promise<void> {
   await sendEmail({
     to: opts.toEmail,
-    subject: `${opts.businessName} has requested a trust check`,
+    subject: `${escHtml(opts.businessName)} has requested a trust check`,
     html: base(`
       <h2 style="color:#111827;font-size:20px;margin:0 0 12px">Trust check requested</h2>
       <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px">
-        Hi <strong>${opts.toName}</strong>,<br><br>
-        <strong>${opts.businessName}</strong> has requested access to your TrustNet profile.
+        Hi <strong>${escHtml(opts.toName)}</strong>,<br><br>
+        <strong>${escHtml(opts.businessName)}</strong> has requested access to your TrustNet profile.
         You can approve or deny this request from your dashboard.
       </p>
       <a href="${opts.dashboardUrl}" style="display:inline-block;padding:12px 24px;background:#1b5e3b;color:#f0c040;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">
@@ -96,7 +101,7 @@ export async function sendVerificationApproved(opts: {
     html: base(`
       <h2 style="color:#111827;font-size:20px;margin:0 0 12px">You&apos;re verified!</h2>
       <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px">
-        Hi <strong>${opts.toName}</strong>,<br><br>
+        Hi <strong>${escHtml(opts.toName)}</strong>,<br><br>
         Your identity has been successfully verified on TrustNet.
         Your TrustScore is now live and businesses can view your verified profile.
       </p>
@@ -120,10 +125,10 @@ export async function sendVerificationRejected(opts: {
     html: base(`
       <h2 style="color:#111827;font-size:20px;margin:0 0 12px">Verification not approved</h2>
       <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px">
-        Hi <strong>${opts.toName}</strong>,<br><br>
+        Hi <strong>${escHtml(opts.toName)}</strong>,<br><br>
         Unfortunately, we were unable to verify your profile at this time.
       </p>
-      ${opts.note ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#991b1b">${opts.note}</div>` : ''}
+      ${opts.note ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#991b1b">${escHtml(opts.note)}</div>` : ''}
       <p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">
         Please re-submit with clearer documentation or contact support if you believe this is an error.
       </p>
@@ -148,11 +153,11 @@ export async function sendCredentialIssued(opts: {
     html: base(`
       <h2 style="color:#111827;font-size:20px;margin:0 0 12px">New credential on your profile</h2>
       <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px">
-        Hi <strong>${opts.toName}</strong>,<br><br>
-        <strong>${opts.issuerName}</strong> has issued a new credential to your TrustNet profile:
+        Hi <strong>${escHtml(opts.toName)}</strong>,<br><br>
+        <strong>${escHtml(opts.issuerName)}</strong> has issued a new credential to your TrustNet profile:
       </p>
       <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:15px;font-weight:600;color:#166534">
-        ${opts.credentialTitle}
+        ${escHtml(opts.credentialTitle)}
       </div>
       <a href="${opts.credentialsUrl}" style="display:inline-block;padding:12px 24px;background:#1b5e3b;color:#f0c040;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">
         View Credentials →
@@ -176,10 +181,10 @@ export async function sendDisputeResolved(opts: {
     html: base(`
       <h2 style="color:#111827;font-size:20px;margin:0 0 12px">Dispute ${resolved ? 'resolved' : 'dismissed'}</h2>
       <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px">
-        Hi <strong>${opts.toName}</strong>,<br><br>
+        Hi <strong>${escHtml(opts.toName)}</strong>,<br><br>
         Your credential dispute has been <strong>${resolved ? 'resolved' : 'dismissed'}</strong> by the TrustNet admin team.
       </p>
-      ${opts.resolutionNote ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#374151">${opts.resolutionNote}</div>` : ''}
+      ${opts.resolutionNote ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#374151">${escHtml(opts.resolutionNote)}</div>` : ''}
       <a href="${opts.dashboardUrl}" style="display:inline-block;padding:12px 24px;background:#1b5e3b;color:#f0c040;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">
         View Dashboard →
       </a>

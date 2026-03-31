@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS public.credentials (
   status            TEXT        DEFAULT 'pending',  -- 'pending' | 'approved' | 'rejected'
   confidence        FLOAT       DEFAULT 0.90,
   document_url      TEXT,
+  proof_hash        TEXT,                               -- W3C VC proof value, set on approval
   issued_at         TIMESTAMPTZ DEFAULT NOW(),
   expires_at        TIMESTAMPTZ,                   -- NULL means no expiry
   created_at        TIMESTAMPTZ DEFAULT NOW()
@@ -283,7 +284,9 @@ CREATE POLICY "companies_update_own"  ON public.companies FOR UPDATE USING (auth
 -- Credentials
 CREATE POLICY "creds_select_own"      ON public.credentials FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "creds_insert_own"      ON public.credentials FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "creds_update_own"      ON public.credentials FOR UPDATE USING (auth.uid() = user_id);
+-- Credential updates are performed exclusively via the service role (API layer).
+-- Client-side updates are blocked to prevent self-approval.
+CREATE POLICY "creds_update_service_only" ON public.credentials FOR UPDATE USING (false);
 
 -- Trust checks
 CREATE POLICY "tc_select_involved"    ON public.trust_checks FOR SELECT

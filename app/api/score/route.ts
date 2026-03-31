@@ -17,16 +17,38 @@ export async function GET(request: Request) {
 
   // Accept both session auth (browser) and API key auth (programmatic)
   let authorized = false
+  let sessionUser: { id: string } | null = null
+  let isApiKeyAuth = false
   if (!IS_DEMO_MODE) {
     const companyId = await validateApiKey(request)
     if (companyId) {
       authorized = true
+      isApiKeyAuth = true
     } else {
       const supabase = await createServerClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) authorized = true
+      if (user) {
+        authorized = true
+        sessionUser = user
+      }
     }
     if (!authorized) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+    // API key callers (businesses with consent) may query any userId.
+    // Session callers may only query their own score unless they are an admin.
+    if (!isApiKeyAuth && sessionUser) {
+      if (userId !== sessionUser.id) {
+        const serviceClient = createServiceClient()
+        const { data: profile } = await serviceClient
+          .from('profiles')
+          .select('role')
+          .eq('id', sessionUser.id)
+          .single()
+        if (!profile || profile.role !== 'admin') {
+          return Response.json({ error: 'Forbidden' }, { status: 403 })
+        }
+      }
+    }
   }
 
   if (IS_DEMO_MODE) {
