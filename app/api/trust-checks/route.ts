@@ -1,5 +1,6 @@
 import { trustChecks, companies, users } from '@/lib/store'
 import type { TrustCheck } from '@/lib/types'
+import type { Json } from '@/lib/supabase'
 import { createServerClient, createServiceClient } from '@/lib/supabase-server'
 import { sendTrustCheckRequest } from '@/lib/email'
 import { audit } from '@/lib/audit'
@@ -152,7 +153,7 @@ export async function POST(request: Request) {
           subject_id:           userId,
           requester_company_id: companyId,
           consent_status:       'pending',
-          credentials_shared:   [],
+          credentials_shared:   [] as Json,
         })
         .select()
         .single()

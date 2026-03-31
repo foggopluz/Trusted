@@ -6,6 +6,7 @@
 // All calls are fire-and-forget: failures are logged but never thrown.
 
 import { createServiceClient } from './supabase-server'
+import type { Json } from './supabase'
 
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -36,7 +37,7 @@ export async function audit(opts: {
       action:      opts.action,
       target_type: opts.targetType ?? null,
       target_id:   opts.targetId ?? null,
-      metadata:    opts.metadata ?? {},
+      metadata:    (opts.metadata ?? {}) as Json,
     })
   } catch (err) {
     console.error('[audit] Failed to write log:', err)

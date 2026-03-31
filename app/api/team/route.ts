@@ -100,7 +100,7 @@ export async function POST(request: Request) {
   if (!inviteeId || typeof inviteeId !== 'string') {
     return Response.json({ error: 'userId is required' }, { status: 400 })
   }
-  if (!role || !MUTABLE_ROLES.includes(role as TeamRole)) {
+  if (!role || typeof role !== 'string' || !MUTABLE_ROLES.includes(role as TeamRole)) {
     return Response.json({
       error: `role must be one of: ${MUTABLE_ROLES.join(', ')}`,
     }, { status: 400 })
@@ -155,7 +155,7 @@ export async function PATCH(request: Request) {
 
   if (!id || typeof id !== 'string')         return Response.json({ error: 'id is required' }, { status: 400 })
   if (!companyId || typeof companyId !== 'string') return Response.json({ error: 'companyId is required' }, { status: 400 })
-  if (!role || !MUTABLE_ROLES.includes(role as TeamRole)) {
+  if (!role || typeof role !== 'string' || !MUTABLE_ROLES.includes(role as TeamRole)) {
     return Response.json({ error: `role must be one of: ${MUTABLE_ROLES.join(', ')}` }, { status: 400 })
   }
 

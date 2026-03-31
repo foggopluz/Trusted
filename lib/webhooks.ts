@@ -82,7 +82,7 @@ async function dispatch(
   void supabase.from('webhook_deliveries').insert({
     webhook_id:   webhookId,
     event:        payload.event,
-    payload,
+    payload: payload as unknown as import('./supabase').Json,
     status:       succeeded ? 'success' : 'failed',
     status_code:  statusCode || null,
     response:     responseText.slice(0, 1000),

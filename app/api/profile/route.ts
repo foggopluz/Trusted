@@ -1,4 +1,5 @@
-import { createServiceClient, createServerClient } from '@/lib/supabase-server'
+import { createServerClient } from '@/lib/supabase-server'
+import type { ProfileRow } from '@/lib/supabase'
 import { applyPrivacyFilter, DEFAULT_PRIVACY, ViewerContext } from '@/lib/privacy'
 
 const IS_DEMO_MODE =
@@ -22,16 +23,17 @@ export async function GET(request: Request) {
   if (IS_DEMO_MODE) return Response.json({ profile: null })
 
   try {
+    // Use the session-aware anon client — profiles_select_all USING (true) allows public reads
     const authClient = await createServerClient()
     const { data: { user } } = await authClient.auth.getUser()
 
-    const supabase = createServiceClient()
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single()
+    const { data: rawData, error } = await authClient.from('profiles').select('*').eq('id', userId).single()
     if (error) return Response.json({ error: error.message }, { status: 500 })
+    const data = rawData as ProfileRow | null
 
-    // Fetch the caller's role separately — never use the target's role to determine viewer permissions
+    // Fetch the caller's role — same policy allows this read
     const { data: callerProfile } = user
-      ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+      ? await authClient.from('profiles').select('role').eq('id', user.id).single()
       : { data: null }
 
     const viewer: ViewerContext = {
@@ -40,7 +42,8 @@ export async function GET(request: Request) {
       isVerified: !!user,
     }
 
-    const filtered = applyPrivacyFilter(data, data?.privacy_settings ?? DEFAULT_PRIVACY, viewer)
+    if (!data) return Response.json({ profile: null })
+    const filtered = applyPrivacyFilter(data as Record<string, unknown>, data.privacy_settings ?? DEFAULT_PRIVACY, viewer)
     return Response.json({ profile: filtered })
   } catch {
     return Response.json({ error: 'Failed to fetch profile' }, { status: 500 })
@@ -75,8 +78,7 @@ export async function PATCH(request: Request) {
       return Response.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
-    const supabase = createServiceClient()
-    const { error } = await supabase.from('profiles').update(updates).eq('id', userId)
+    const { error } = await authClient.from('profiles').update(updates).eq('id', userId)
     if (error) return Response.json({ error: error.message }, { status: 500 })
     return Response.json({ ok: true })
   } catch {

@@ -1,5 +1,6 @@
 import { ratings } from '@/lib/store'
 import type { Rating } from '@/lib/types'
+import type { EndorsementRow } from '@/lib/supabase'
 import { createServiceClient } from '@/lib/supabase-server'
 
 const IS_DEMO_MODE =
@@ -58,7 +59,8 @@ export async function POST(request: Request) {
 
     if (error) return Response.json({ error: error.message }, { status: 500 })
     // Return a Rating-shaped object; use the DB-generated id if available
-    const saved: Rating = { ...newRating, id: data.id ?? newRating.id }
+    const row = data as EndorsementRow | null
+    const saved: Rating = { ...newRating, id: row?.id ?? newRating.id }
     return Response.json({ rating: saved }, { status: 201 })
   } catch {
     return Response.json({ error: 'Failed to create rating' }, { status: 500 })

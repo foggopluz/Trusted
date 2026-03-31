@@ -29,6 +29,7 @@ export interface Database {
           bio: string | null
           member_since: string | null
           trust_score: number | null
+          privacy_settings: Record<string, unknown> | null
           created_at: string
         }
         Insert: {
@@ -49,6 +50,7 @@ export interface Database {
           bio?: string | null
           member_since?: string | null
           trust_score?: number | null
+          privacy_settings?: Record<string, unknown> | null
         }
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>
         Relationships: []
@@ -110,7 +112,9 @@ export interface Database {
           status: string
           confidence: number | null
           document_url: string | null
+          proof_hash: string | null
           issued_at: string
+          expires_at: string | null
           created_at: string
         }
         Insert: {
@@ -124,7 +128,9 @@ export interface Database {
           status?: string
           confidence?: number | null
           document_url?: string | null
+          proof_hash?: string | null
           issued_at?: string
+          expires_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['credentials']['Insert']>
         Relationships: []
@@ -136,6 +142,9 @@ export interface Database {
           subject_id: string
           requester_company_id: string | null
           consent_status: string
+          score_at_check: number | null
+          risk_tier: string | null
+          credentials_shared: Json
           note: string | null
           created_at: string
         }
@@ -144,6 +153,9 @@ export interface Database {
           subject_id: string
           requester_company_id?: string | null
           consent_status?: string
+          score_at_check?: number | null
+          risk_tier?: string | null
+          credentials_shared?: Json
           note?: string | null
         }
         Update: Partial<Database['public']['Tables']['trust_checks']['Insert']>
@@ -167,6 +179,149 @@ export interface Database {
           relationship?: string | null
         }
         Update: Partial<Database['public']['Tables']['endorsements']['Insert']>
+        Relationships: []
+      }
+      audit_logs: {
+        Row: {
+          id: string
+          actor_id: string | null
+          action: string
+          target_type: string | null
+          target_id: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          actor_id?: string | null
+          action: string
+          target_type?: string | null
+          target_id?: string | null
+          metadata?: Json
+        }
+        Update: Partial<Database['public']['Tables']['audit_logs']['Insert']>
+        Relationships: []
+      }
+      api_keys: {
+        Row: {
+          id: string
+          company_id: string
+          key_hash: string
+          key_prefix: string
+          name: string
+          is_active: boolean
+          last_used_at: string | null
+          created_at: string
+        }
+        Insert: {
+          company_id: string
+          key_hash: string
+          key_prefix: string
+          name: string
+          is_active?: boolean
+          last_used_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['api_keys']['Insert']>
+        Relationships: []
+      }
+      disputes: {
+        Row: {
+          id: string
+          credential_id: string
+          filed_by: string
+          reason: string
+          evidence_url: string | null
+          status: string
+          resolution_note: string | null
+          resolved_by: string | null
+          resolved_at: string | null
+          created_at: string
+        }
+        Insert: {
+          credential_id: string
+          filed_by: string
+          reason: string
+          evidence_url?: string | null
+          status?: string
+          resolution_note?: string | null
+          resolved_by?: string | null
+          resolved_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['disputes']['Insert']>
+        Relationships: []
+      }
+      webhooks: {
+        Row: {
+          id: string
+          company_id: string
+          url: string
+          secret: string
+          events: string[]
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          company_id: string
+          url: string
+          secret: string
+          events: string[]
+          is_active?: boolean
+        }
+        Update: Partial<Database['public']['Tables']['webhooks']['Insert']>
+        Relationships: []
+      }
+      webhook_deliveries: {
+        Row: {
+          id: string
+          webhook_id: string
+          event: string
+          payload: Json
+          status: string
+          status_code: number | null
+          response: string | null
+          delivered_at: string
+        }
+        Insert: {
+          webhook_id: string
+          event: string
+          payload: Json
+          status?: string
+          status_code?: number | null
+          response?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['webhook_deliveries']['Insert']>
+        Relationships: []
+      }
+      scoring_config: {
+        Row: {
+          id: number
+          factor_weights: Json
+          risk_thresholds: Json
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: number
+          factor_weights?: Json
+          risk_thresholds?: Json
+          updated_by?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['scoring_config']['Insert']>
+        Relationships: []
+      }
+      team_members: {
+        Row: {
+          id: string
+          company_id: string
+          user_id: string
+          role: string
+          created_at: string
+        }
+        Insert: {
+          company_id: string
+          user_id: string
+          role?: string
+        }
+        Update: Partial<Database['public']['Tables']['team_members']['Insert']>
         Relationships: []
       }
     }
